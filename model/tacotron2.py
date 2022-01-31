@@ -178,7 +178,7 @@ class Tacotron2(pl.LightningModule):
             prenet_all = False
 
         # Encoding --------------------------------------------------------------------------------
-        encoded = self.encoder(tts_data.chars_idx, tts_data_len.chars_idx_len)
+        encoded = self.encoder(tts_data["chars_idx"], tts_data_len["chars_idx_len"])
 
         if self.gst is not None:
             gst = gst.repeat(1, encoded.shape[1], 1)
@@ -186,16 +186,16 @@ class Tacotron2(pl.LightningModule):
 
         # Create a mask for the encoded characters
         encoded_mask = (
-            torch.arange(tts_data.chars_idx.shape[1], device=self.device)[None, :]
-            < tts_data_len.chars_idx_len[:, None]
+            torch.arange(tts_data["chars_idx"].shape[1], device=self.device)[None, :]
+            < tts_data_len["chars_idx_len"][:, None]
         )
 
         # Transform the encoded characters for attention
         att_encoded = self.att_encoder(encoded)
 
         # Decoding --------------------------------------------------------------------------------
-        batch_size = tts_data.mel_spectrogram.shape[0]
-        num_mels = tts_data.mel_spectrogram.shape[2]
+        batch_size = tts_data["mel_spectrogram"].shape[0]
+        num_mels = tts_data["mel_spectrogram"].shape[2]
 
         # Get empty initial states
         (
@@ -207,7 +207,7 @@ class Tacotron2(pl.LightningModule):
         ) = self.__init_hidden(
             encoded_len=encoded.shape[1],
             batch_size=batch_size,
-            out_len=tts_data.mel_spectrogram.shape[1],
+            out_len=tts_data["mel_spectrogram"].shape[1],
         )
 
         if use_teacher_forcing:
@@ -216,7 +216,7 @@ class Tacotron2(pl.LightningModule):
             decoder_in = torch.concat(
                 [
                     torch.zeros(batch_size, 1, num_mels, device=self.device),
-                    tts_data.mel_spectrogram,
+                    tts_data["mel_spectrogram"],
                 ],
                 1,
             )
@@ -293,29 +293,29 @@ class Tacotron2(pl.LightningModule):
             mel_spectrogram, mel_spectrogram_post, gate, alignment = self(batch)
 
         mel_mask = (
-            torch.arange(tts_data.mel_spectrogram.shape[1], device=self.device)[None, :]
-            >= tts_data_len.mel_spectrogram_len[:, None]
+            torch.arange(tts_data["mel_spectrogram"].shape[1], device=self.device)[None, :]
+            >= tts_data_len["mel_spectrogram_len"][:, None]
         )
 
         mel_spectrogram[mel_mask] = 0.0
         mel_spectrogram_post[mel_mask] = 0.0
         gate[mel_mask] = -1000.0
 
-        gate_loss = F.binary_cross_entropy_with_logits(gate, tts_data.gate)
-        mel_loss = F.mse_loss(mel_spectrogram, tts_data.mel_spectrogram)
-        mel_post_loss = F.mse_loss(mel_spectrogram_post, tts_data.mel_spectrogram)
+        gate_loss = F.binary_cross_entropy_with_logits(gate, tts_data["gate"])
+        mel_loss = F.mse_loss(mel_spectrogram, tts_data["mel_spectrogram"])
+        mel_post_loss = F.mse_loss(mel_spectrogram_post, tts_data["mel_spectrogram"])
 
         loss = gate_loss + mel_loss + mel_post_loss
 
         return {
             "loss": loss,
             "mel_spectrogram_pred": mel_spectrogram[0].detach(),
-            "mel_spectrogram": tts_data.mel_spectrogram[0].detach(),
+            "mel_spectrogram": tts_data["mel_spectrogram"][0].detach(),
             "alignment": alignment[0][
-                : tts_data_len.mel_spectrogram_len[0],
-                : tts_data_len.chars_idx_len[0],
+                : tts_data_len["mel_spectrogram_len"][0],
+                : tts_data_len["chars_idx_len"][0],
             ].detach(),
-            "gate": tts_data.gate[0].detach(),
+            "gate": tts_data["gate"][0].detach(),
             "gate_pred": gate[0].detach(),
             "log": {"loss_train": loss.detach()},
         }
@@ -325,7 +325,7 @@ class Tacotron2(pl.LightningModule):
 
         gst = None
         if self.gst is not None:
-            gst = self.gst(tts_data.mel_spectrogram)
+            gst = self.gst(tts_data["mel_spectrogram"])
             mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
                 batch, gst=gst
             )
@@ -333,27 +333,27 @@ class Tacotron2(pl.LightningModule):
             mel_spectrogram, mel_spectrogram_post, gate, alignment = self(batch)
 
         mel_mask = (
-            torch.arange(tts_data.mel_spectrogram.shape[1], device=self.device)[None, :]
-            >= tts_data_len.mel_spectrogram_len[:, None]
+            torch.arange(tts_data["mel_spectrogram"].shape[1], device=self.device)[None, :]
+            >= tts_data_len["mel_spectrogram_len"][:, None]
         )
 
         mel_spectrogram[mel_mask] = 0.0
         mel_spectrogram_post[mel_mask] = 0.0
 
         gate_loss = F.binary_cross_entropy_with_logits(
-            gate, tts_data.gate, weight=(~mel_mask).unsqueeze(2).int()
+            gate, tts_data["gate"], weight=(~mel_mask).unsqueeze(2).int()
         )
-        mel_loss = F.mse_loss(mel_spectrogram, tts_data.mel_spectrogram)
-        mel_post_loss = F.mse_loss(mel_spectrogram_post, tts_data.mel_spectrogram)
+        mel_loss = F.mse_loss(mel_spectrogram, tts_data["mel_spectrogram"])
+        mel_post_loss = F.mse_loss(mel_spectrogram_post, tts_data["mel_spectrogram"])
 
         loss = gate_loss + mel_loss + mel_post_loss
 
         return {
             "loss": loss,
             "mel_spectrogram_pred": mel_spectrogram[0].detach(),
-            "mel_spectrogram": tts_data.mel_spectrogram[0].detach(),
+            "mel_spectrogram": tts_data["mel_spectrogram"][0].detach(),
             "alignment": alignment[0].detach(),
-            "gate": tts_data.gate[0].detach(),
+            "gate": tts_data["gate"][0].detach(),
             "gate_pred": gate[0].detach(),
         }
 

@@ -1,31 +1,28 @@
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-
-from datasets import tts_types
+from collections import defaultdict
 
 
 def _collate(data):
     # Transform a list of TTSData/TTSDataLength instances into a single
     # TTSData/TTSDataLength instance containing data batches
 
-    # Separate the TTSData and TTSDataLength instances into separate lists
-    tts_data, tts_data_len = [], []
+    # Separate the TTSData and TTSDataLength instances into separate collated dictionaries
+    tts_data_collated, tts_data_len_collated = defaultdict(list), defaultdict(list)
     for tts_data_i, tts_data_len_i in data:
-        tts_data.append(tts_data_i)
-        tts_data_len.append(tts_data_len_i)
-
-    # Pad all tensors in the list of TTSData objects, then create a new TTSData
-    # instance containing the batch
-    tts_data = tts_types.TTSData(
-        *[nn.utils.rnn.pad_sequence(i, batch_first=True) for i in zip(*tts_data)]
-    )
-
-    # Stack all tensors in the list of TTSDataLength objects, then create a new
-    # TTSDataLength instance containing the batch
-    tts_data_len = tts_types.TTSDataLength(
-        *[torch.stack(i).squeeze(1) for i in zip(*tts_data_len)]
-    )
+        for k, v in tts_data_i.items():
+            tts_data_collated[k].append(v)
+        for k, v in tts_data_len_i.items():
+            tts_data_len_collated[k].append(v)
+    
+    tts_data = dict()
+    for k, v in tts_data_collated.items():
+        tts_data[k] = nn.utils.rnn.pad_sequence(v, batch_first=True)
+    
+    tts_data_len = dict()
+    for k, v in tts_data_len_collated.items():
+        tts_data_len[k] = torch.stack(v).squeeze(1)
 
     return tts_data, tts_data_len
 

@@ -8,8 +8,6 @@ from torch.nn import functional as F
 from torch.utils.data import Dataset
 import librosa
 
-from datasets import tts_types
-
 ALLOWED_CHARS = "!'(),.:;? \\-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 
@@ -141,12 +139,12 @@ class TTSDataset(Dataset):
         chars_idx = torch.LongTensor(chars_idx).squeeze(-1)
         chars_idx_len = torch.IntTensor([len(chars_idx)])
 
-        return tts_types.TTSData(
-            chars_idx=chars_idx,
-            mel_spectrogram=mel_spectrogram,
-            gate=gate,
-        ), tts_types.TTSDataLength(
-            chars_idx_len=chars_idx_len,
-            mel_spectrogram_len=mel_spectrogram_len,
-            gate_len=gate_len,
-        )
+        return {
+            "chars_idx":chars_idx,
+            "mel_spectrogram":mel_spectrogram,
+            "gate":gate,
+        },{
+            "chars_idx_len":chars_idx_len,
+            "mel_spectrogram_len":mel_spectrogram_len,
+            "gate_len":gate_len,
+        }
