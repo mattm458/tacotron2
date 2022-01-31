@@ -179,8 +179,10 @@ class Tacotron2(pl.LightningModule):
 
         # Encoding --------------------------------------------------------------------------------
         encoded = self.encoder(tts_data.chars_idx, tts_data_len.chars_idx_len)
-        gst = gst.repeat(1, encoded.shape[1], 1)
-        encoded = torch.cat([encoded, gst], dim=2)
+
+        if self.gst is not None:
+            gst = gst.repeat(1, encoded.shape[1], 1)
+            encoded = torch.cat([encoded, gst], dim=2)
 
         # Create a mask for the encoded characters
         encoded_mask = (

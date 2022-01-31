@@ -57,7 +57,7 @@ if __name__ == "__main__":
         shuffle=False,
     )
 
-    gst = GST()
+    # gst = GST()
 
     tacotron2 = Tacotron2(
         lr=config["training"]["lr"],
@@ -72,8 +72,8 @@ if __name__ == "__main__":
         rnn_hidden_dim=config["decoder"]["rnn_hidden_dim"],
         postnet_dim=config["decoder"]["postnet_dim"],
         dropout=config["tacotron2"]["dropout"],
-        gst=gst,
-        gst_dim=256,
+        # gst=gst,
+        # gst_dim=256,
     )
 
     trainer = Trainer(
@@ -86,6 +86,6 @@ if __name__ == "__main__":
     trainer.fit(
         tacotron2,
         train_dataloaders=train_dataloader,
-        # val_dataloaders=val_dataloader,
+        val_dataloaders=val_dataloader,
         #ckpt_path="lightning_logs/version_55/checkpoints/epoch=81-step=16317.ckpt",
     )
