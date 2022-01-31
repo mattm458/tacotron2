@@ -1,7 +1,8 @@
+from collections import defaultdict
+
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from collections import defaultdict
 
 
 def _collate(data):
@@ -15,11 +16,13 @@ def _collate(data):
             tts_data_collated[k].append(v)
         for k, v in tts_data_len_i.items():
             tts_data_len_collated[k].append(v)
-    
+
+    # Pad all tensors in the TTS data dictionary
     tts_data = dict()
     for k, v in tts_data_collated.items():
         tts_data[k] = nn.utils.rnn.pad_sequence(v, batch_first=True)
-    
+
+    # Stack all tensors in the TTS length dictionary
     tts_data_len = dict()
     for k, v in tts_data_len_collated.items():
         tts_data_len[k] = torch.stack(v).squeeze(1)

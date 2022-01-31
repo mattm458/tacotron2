@@ -1,12 +1,12 @@
 import re
 
+import librosa
 import torch
 import torchaudio
 import unidecode
 from sklearn.preprocessing import OrdinalEncoder
 from torch.nn import functional as F
 from torch.utils.data import Dataset
-import librosa
 
 ALLOWED_CHARS = "!'(),.:;? \\-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
@@ -20,8 +20,8 @@ class TTSDataset(Dataset):
         filenames,
         texts,
         allowed_chars=ALLOWED_CHARS,
-        end_token='^',
-        #sample_rate=22050,
+        end_token="^",
+        # sample_rate=22050,
         sample_rate=16000,
         n_fft=1024,
         win_length=1024,
@@ -104,9 +104,9 @@ class TTSDataset(Dataset):
         # Load the audio file and squeeze it to a 1D Tensor
         wav, _ = torchaudio.load(self.filenames[i])
         wav = wav.squeeze(0)
-        
+
         if self.trim:
-            wav, _ = librosa.effects.trim(wav.numpy(),frame_length=512)
+            wav, _ = librosa.effects.trim(wav.numpy(), frame_length=512)
             wav = torch.tensor(wav)
 
         # Add silence if necessary
@@ -140,11 +140,11 @@ class TTSDataset(Dataset):
         chars_idx_len = torch.IntTensor([len(chars_idx)])
 
         return {
-            "chars_idx":chars_idx,
-            "mel_spectrogram":mel_spectrogram,
-            "gate":gate,
-        },{
-            "chars_idx_len":chars_idx_len,
-            "mel_spectrogram_len":mel_spectrogram_len,
-            "gate_len":gate_len,
+            "chars_idx": chars_idx,
+            "mel_spectrogram": mel_spectrogram,
+            "gate": gate,
+        }, {
+            "chars_idx_len": chars_idx_len,
+            "mel_spectrogram_len": mel_spectrogram_len,
+            "gate_len": gate_len,
         }

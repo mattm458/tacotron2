@@ -293,7 +293,9 @@ class Tacotron2(pl.LightningModule):
             mel_spectrogram, mel_spectrogram_post, gate, alignment = self(batch)
 
         mel_mask = (
-            torch.arange(tts_data["mel_spectrogram"].shape[1], device=self.device)[None, :]
+            torch.arange(tts_data["mel_spectrogram"].shape[1], device=self.device)[
+                None, :
+            ]
             >= tts_data_len["mel_spectrogram_len"][:, None]
         )
 
@@ -315,6 +317,7 @@ class Tacotron2(pl.LightningModule):
                 : tts_data_len["mel_spectrogram_len"][0],
                 : tts_data_len["chars_idx_len"][0],
             ].detach(),
+            
             "gate": tts_data["gate"][0].detach(),
             "gate_pred": gate[0].detach(),
             "log": {"loss_train": loss.detach()},
@@ -333,7 +336,9 @@ class Tacotron2(pl.LightningModule):
             mel_spectrogram, mel_spectrogram_post, gate, alignment = self(batch)
 
         mel_mask = (
-            torch.arange(tts_data["mel_spectrogram"].shape[1], device=self.device)[None, :]
+            torch.arange(tts_data["mel_spectrogram"].shape[1], device=self.device)[
+                None, :
+            ]
             >= tts_data_len["mel_spectrogram_len"][:, None]
         )
 
