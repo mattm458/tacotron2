@@ -21,7 +21,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config",
         type=str,
-        default="hyperparameters.yaml",
+        default="example-hyperparameters/vanilla-tacotron.yaml",
         help="A YAML configuration file containing hyperparameters",
     )
 
