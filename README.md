@@ -8,4 +8,4 @@ This repository contains an implementation of Tacotron 2. It is heavily based on
 * Uses Lightning instead of custom training loop code
 * YAML configuration system for experiments
 
-While it is still under development, the ultimate goal of this repository is to have a simple, easy-to-read, well-documented, and easily configurable testbed for a number of different speech synthesis tasks.
+While it is still under development, the ultimate goal of this repository is to have a simple, easy-to-read, well-documented, and easily configurable testbed for a number of different speech synthesis tasks. It probably doesn't work yet and is missing some dataset files, so use at your own risk.
