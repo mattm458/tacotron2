@@ -41,6 +41,8 @@ class Tacotron2(pl.LightningModule):
         dropout,
         gst=None,
         gst_dim=None,
+        speaker_embeddings=None,
+        speaker_embeddings_dim=None,
     ):
         """Create a Tacotron2 object.
 
@@ -62,12 +64,17 @@ class Tacotron2(pl.LightningModule):
         super().__init__()
 
         self.gst = None
+        self.speaker_embeddings = None
 
         self.embedding_dim = char_embedding_dim
 
         if gst_dim is not None and gst is not None:
             self.embedding_dim += gst_dim
             self.gst = gst
+
+        if speaker_embeddings is not None and speaker_embeddings_dim is not None:
+            self.embedding_dim += speaker_embeddings_dim
+            self.speaker_embeddings = speaker_embeddings
 
         self.lr = lr
         self.weight_decay = weight_decay
@@ -155,7 +162,7 @@ class Tacotron2(pl.LightningModule):
             rnn_hidden,
         )
 
-    def forward(self, data, gst=None, teacher_forcing=True):
+    def forward(self, data, gst=None, teacher_forcing=True, speakers=None):
         if self.gst is not None and gst is None:
             raise Exception("Tacotron2 is expecting a GST, but none was given")
         elif self.gst is None and gst is not None:
@@ -180,9 +187,15 @@ class Tacotron2(pl.LightningModule):
         # Encoding --------------------------------------------------------------------------------
         encoded = self.encoder(tts_data["chars_idx"], tts_data_len["chars_idx_len"])
 
-        if self.gst is not None:
-            gst = gst.repeat(1, encoded.shape[1], 1)
-            encoded = torch.cat([encoded, gst], dim=2)
+        # if self.gst is not None:
+        #     gst = gst.repeat(1, encoded.shape[1], 1)
+        #     encoded = torch.cat([encoded, gst], dim=2)
+
+        if self.speaker_embeddings is not None:
+            speaker_embeddings = self.speaker_embeddings(speakers).repeat(
+                1, encoded.shape[1], 1
+            )
+            encoded = torch.cat([encoded, speaker_embeddings], dim=2)
 
         # Create a mask for the encoded characters
         encoded_mask = (
@@ -317,7 +330,6 @@ class Tacotron2(pl.LightningModule):
                 : tts_data_len["mel_spectrogram_len"][0],
                 : tts_data_len["chars_idx_len"][0],
             ].detach(),
-            
             "gate": tts_data["gate"][0].detach(),
             "gate_pred": gate[0].detach(),
             "log": {"loss_train": loss.detach()},
