@@ -11,6 +11,8 @@ if len(sys.argv) != 3:
     exit()
 
 _, DATASET_DIR, OUT_DIR = sys.argv
+
+# TODO: do train-clean-300 when you can get the data
 datasets = ["dev-clean", "test-clean", "train-clean-100"]
 
 for dataset in datasets:
@@ -18,6 +20,7 @@ for dataset in datasets:
     speaker_ids = []
     normalized_txts = []
 
+    # LibriTTS datasets are organized into directories by speaker ID, then by chapter ID
     for speaker_id in os.listdir(path.join(DATASET_DIR, dataset)):
         if not speaker_id.isnumeric():
             continue
@@ -26,6 +29,8 @@ for dataset in datasets:
             if not chapter_id.isnumeric():
                 continue
 
+            # Flat file structure has wav and transcript files separately, with the same ID in the filename
+            # Get all the recording IDs and iterate over them to load the WAV path and normalized transcript
             for id in (
                 x.replace(".wav", "")
                 for x in os.listdir(
