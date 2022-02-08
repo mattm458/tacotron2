@@ -6,6 +6,7 @@ from sklearn.preprocessing import LabelEncoder
 encoder = None
 
 
+# Constructs and returns a LabelEncoder for speaker IDs
 def get_encoder(file, base_dir):
     global encoder
 
