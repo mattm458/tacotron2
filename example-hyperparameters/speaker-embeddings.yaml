@@ -1,12 +1,12 @@
 data:
-  #train: "data/ljs_audio_text_train_filelist.txt"
-  #test: "data/ljs_audio_text_test_filelist.txt"
-  #val: "data/ljs_audio_text_val_filelist.txt"
-  train: "data/mailabs_audio_text_train_filelist.txt"
-  test: "data/mailabs_audio_text_test_filelist.txt"
-  val: "data/mailabs_audio_text_val_filelist.txt"
+  train: "data/libritts-train-clean-100.csv"
+  test: "data/libritts-test-clean.csv"
+  val: "data/libritts-dev-clean.csv"
   num_workers: 8
   prefetch_factor: 32
+model:
+  extensions:
+    - speaker_embeddings
 preprocessing:
   valid_chars: "!'(),.:;? \\-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 training:
@@ -32,5 +32,6 @@ tacotron2:
   dropout: 0.5
 extensions:
   speaker_embeddings:
-    num_speakers: 3
-    embedding_dim: 256
+    speaker_ids: "data/libritts-speaker-ids.csv"
+    num_speakers: 326
+    embedding_dim: 64

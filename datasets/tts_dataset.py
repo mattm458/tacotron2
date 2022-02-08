@@ -1,4 +1,5 @@
 import re
+from os import path
 
 import librosa
 import torch
@@ -19,10 +20,13 @@ class TTSDataset(Dataset):
         self,
         filenames,
         texts,
+        base_dir,
+        speaker_ids=None,
         allowed_chars=ALLOWED_CHARS,
         end_token="^",
         # sample_rate=22050,
-        sample_rate=16000,
+        sample_rate=24000,
+        resample_rate=16000,
         n_fft=1024,
         win_length=1024,
         hop_length=256,
@@ -64,15 +68,21 @@ class TTSDataset(Dataset):
         # Simple assignments
         self.filenames = filenames
         self.end_token = end_token
-        self.sample_rate = sample_rate
         self.trim = trim
+        self.base_dir = base_dir
 
         # Preprocessing step - ensure textual data only contains allowed characters
         allowed_chars_re = re.compile(f"[^{allowed_chars}]+")
         self.texts = [allowed_chars_re.sub("", unidecode.unidecode(t)) for t in texts]
 
+        self.speaker_ids = speaker_ids
+
+        effective_sample_rate = resample_rate if resample_rate else sample_rate
+
         # Preprocessing step - calculate the length of the silence vector
-        self.silence_len = int(silence * sample_rate) if silence is not None else None
+        self.silence_len = (
+            int(silence * effective_sample_rate) if silence is not None else None
+        )
 
         # Preprocessing step - create an ordinal encoder to transform textual data to a
         # tensor of integers
@@ -82,9 +92,15 @@ class TTSDataset(Dataset):
         else:
             self.encoder.fit([[x] for x in list(allowed_chars) + [end_token]])
 
+        self.resample = None
+        if resample_rate:
+            self.resample = torchaudio.transforms.Resample(
+                orig_freq=sample_rate, new_freq=resample_rate
+            )
+
         # Create a Torchaudio MelSpectrogram generator
         self.melspectrogram = torchaudio.transforms.MelSpectrogram(
-            sample_rate=sample_rate,
+            sample_rate=effective_sample_rate,
             n_fft=n_fft,
             win_length=win_length,
             hop_length=hop_length,
@@ -102,8 +118,11 @@ class TTSDataset(Dataset):
     def __getitem__(self, i):
         # Audio preprocessing -----------------------------------------------------------
         # Load the audio file and squeeze it to a 1D Tensor
-        wav, _ = torchaudio.load(self.filenames[i])
+        wav, _ = torchaudio.load(path.join(self.base_dir, self.filenames[i]))
         wav = wav.squeeze(0)
+
+        if self.resample is not None:
+            wav = self.resample(wav)
 
         if self.trim:
             wav, _ = librosa.effects.trim(wav.numpy(), frame_length=512)
@@ -139,12 +158,19 @@ class TTSDataset(Dataset):
         chars_idx = torch.LongTensor(chars_idx).squeeze(-1)
         chars_idx_len = torch.IntTensor([len(chars_idx)])
 
-        return {
+        out_data = {
             "chars_idx": chars_idx,
             "mel_spectrogram": mel_spectrogram,
             "gate": gate,
-        }, {
+        }
+
+        out_metadata = {
             "chars_idx_len": chars_idx_len,
             "mel_spectrogram_len": mel_spectrogram_len,
             "gate_len": gate_len,
         }
+
+        if self.speaker_ids is not None:
+            out_metadata["speaker_id"] = torch.IntTensor([self.speaker_ids[i]])
+
+        return out_data, out_metadata
