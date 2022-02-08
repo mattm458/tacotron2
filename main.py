@@ -117,6 +117,6 @@ if __name__ == "__main__":
     trainer.fit(
         tacotron2,
         train_dataloaders=train_dataloader,
-        # val_dataloaders=val_dataloader,
+        val_dataloaders=val_dataloader,
         # ckpt_path="lightning_logs/version_55/checkpoints/epoch=81-step=16317.ckpt",
     )
