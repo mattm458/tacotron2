@@ -22,15 +22,16 @@ def load_dataset(filepath, config, dataset_dir, base_dir="./"):
     )
     args = {"filenames": list(df.wav), "texts": list(df.text_normalized)}
 
-    if "speaker_embeddings" in config["model"]["extensions"]:
-        encoder = speaker_embedding_utils.get_encoder(
-            path.join(
-                base_dir, config["extensions"]["speaker_embeddings"]["speaker_ids"]
-            ),
-            base_dir,
-        )
+    if "model" in config and "extensions" in config["model"]:
+        if "speaker_embeddings" in config["model"]["extensions"]:
+            encoder = speaker_embedding_utils.get_encoder(
+                path.join(
+                    base_dir, config["extensions"]["speaker_embeddings"]["speaker_ids"]
+                ),
+                base_dir,
+            )
 
-        args["speaker_ids"] = encoder.transform(df.speaker_id)
+            args["speaker_ids"] = encoder.transform(df.speaker_id)
 
     return TTSDataset(**args, base_dir=dataset_dir)
 
@@ -54,9 +55,9 @@ if __name__ == "__main__":
 
     dataset_dir = args.dataset_dir
 
-    train_dataset = load_dataset(config["data"]["train"], dataset_dir, config)
-    test_dataset = load_dataset(config["data"]["test"], dataset_dir, config)
-    val_dataset = load_dataset(config["data"]["val"], dataset_dir, config)
+    train_dataset = load_dataset(config["data"]["train"], config, dataset_dir)
+    test_dataset = load_dataset(config["data"]["test"], config, dataset_dir)
+    val_dataset = load_dataset(config["data"]["val"], config, dataset_dir)
 
     train_dataloader = TTSDataLoader(
         train_dataset,
@@ -82,11 +83,17 @@ if __name__ == "__main__":
     )
 
     # gst = GST()
-    speaker_embeddings = nn.Embedding(
-        config["extensions"]["speaker_embeddings"]["num_speakers"],
-        config["extensions"]["speaker_embeddings"]["embedding_dim"],
-    )
-    speaker_embeddings_dim = config["extensions"]["speaker_embeddings"]["embedding_dim"]
+    args = {}
+
+    if "model" in config and "extensions" in config["model"]:
+        if "speaker_embeddings" in config["model"]["extensions"]:
+            args["speaker_embeddings"] = nn.Embedding(
+                config["extensions"]["speaker_embeddings"]["num_speakers"],
+                config["extensions"]["speaker_embeddings"]["embedding_dim"],
+            )
+            args["speaker_embeddings_dim"] = config["extensions"]["speaker_embeddings"][
+                "embedding_dim"
+            ]
 
     tacotron2 = Tacotron2(
         lr=config["training"]["lr"],
@@ -103,8 +110,7 @@ if __name__ == "__main__":
         dropout=config["tacotron2"]["dropout"],
         # gst=gst,
         # gst_dim=256,
-        speaker_embeddings=speaker_embeddings,
-        speaker_embeddings_dim=speaker_embeddings_dim,
+        **args
     )
 
     trainer = Trainer(
