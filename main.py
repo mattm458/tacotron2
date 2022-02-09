@@ -5,6 +5,7 @@ from os import path
 import pandas as pd
 import yaml
 from pytorch_lightning import Trainer
+from scipy.stats import zscore
 from torch import nn
 
 from datasets.tts_dataloader import TTSDataLoader
@@ -12,7 +13,6 @@ from datasets.tts_dataset import TTSDataset
 from model.gst import GST
 from model.speaker_embeddings import utils as speaker_embedding_utils
 from model.tacotron2 import Tacotron2
-from scipy.stats import zscore
 
 
 def load_dataset(filepath, config, dataset_dir, base_dir="./"):
@@ -33,11 +33,11 @@ def load_dataset(filepath, config, dataset_dir, base_dir="./"):
             )
 
             args["speaker_ids"] = encoder.transform(df.speaker_id)
-        
-        if "features" in config['model']['extensions']:
-            features = config['extensions']['features']['allowed_features']
-            if config['extensions']['features']['normalize_by'] is None:
-                args['features'] = zscore(df[features]).values.tolist()
+
+        if "features" in config["model"]["extensions"]:
+            features = config["extensions"]["features"]["allowed_features"]
+            if config["extensions"]["features"]["normalize_by"] is None:
+                args["features"] = zscore(df[features]).values.tolist()
 
     return TTSDataset(**args, base_dir=dataset_dir)
 
@@ -100,6 +100,11 @@ if __name__ == "__main__":
             args["speaker_embeddings_dim"] = config["extensions"]["speaker_embeddings"][
                 "embedding_dim"
             ]
+        if "features" in config["model"]["extensions"]:
+            args["speech_features"] = True
+            args["speech_feature_dim"] = len(
+                config["extensions"]["features"]["allowed_features"]
+            )
 
     tacotron2 = Tacotron2(
         lr=config["training"]["lr"],

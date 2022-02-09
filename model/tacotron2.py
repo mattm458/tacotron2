@@ -43,6 +43,8 @@ class Tacotron2(pl.LightningModule):
         gst_dim=None,
         speaker_embeddings=None,
         speaker_embeddings_dim=None,
+        speech_features=False,
+        speech_feature_dim=None,
     ):
         """Create a Tacotron2 object.
 
@@ -65,6 +67,7 @@ class Tacotron2(pl.LightningModule):
 
         self.gst = None
         self.speaker_embeddings = None
+        self.speech_features = False
 
         self.embedding_dim = char_embedding_dim
 
@@ -75,6 +78,10 @@ class Tacotron2(pl.LightningModule):
         if speaker_embeddings is not None and speaker_embeddings_dim is not None:
             self.embedding_dim += speaker_embeddings_dim
             self.speaker_embeddings = speaker_embeddings
+
+        if speech_features is not None:
+            self.embedding_dim += speech_feature_dim
+            self.speech_features = True
 
         self.lr = lr
         self.weight_decay = weight_decay
@@ -192,9 +199,16 @@ class Tacotron2(pl.LightningModule):
         #     encoded = torch.cat([encoded, gst], dim=2)
 
         if self.speaker_embeddings is not None:
-            speaker_embeddings = self.speaker_embeddings(tts_metadata["speaker_id"]).unsqueeze(1)
+            speaker_embeddings = self.speaker_embeddings(
+                tts_metadata["speaker_id"]
+            ).unsqueeze(1)
             speaker_embeddings = speaker_embeddings.repeat(1, encoded.shape[1], 1)
             encoded = torch.cat([encoded, speaker_embeddings], dim=2)
+
+        if self.speech_features:
+            speech_features = tts_metadata["features"].unsqueeze(1)
+            speech_features = speech_features.repeat(1, encoded.shape[1], 1)
+            encoded = torch.cat([encoded, speech_features], dim=2)
 
         # Create a mask for the encoded characters
         encoded_mask = (
