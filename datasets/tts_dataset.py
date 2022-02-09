@@ -22,6 +22,7 @@ class TTSDataset(Dataset):
         texts,
         base_dir,
         speaker_ids=None,
+        features=None,
         allowed_chars=ALLOWED_CHARS,
         end_token="^",
         # sample_rate=22050,
@@ -70,6 +71,8 @@ class TTSDataset(Dataset):
         self.end_token = end_token
         self.trim = trim
         self.base_dir = base_dir
+
+        self.features = features
 
         # Preprocessing step - ensure textual data only contains allowed characters
         allowed_chars_re = re.compile(f"[^{allowed_chars}]+")
@@ -172,5 +175,8 @@ class TTSDataset(Dataset):
 
         if self.speaker_ids is not None:
             out_metadata["speaker_id"] = torch.IntTensor([self.speaker_ids[i]])
+        
+        if self.features is not None:
+            out_metadata['features'] = torch.Tensor([self.features[i]])
 
         return out_data, out_metadata

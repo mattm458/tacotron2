@@ -12,6 +12,7 @@ from datasets.tts_dataset import TTSDataset
 from model.gst import GST
 from model.speaker_embeddings import utils as speaker_embedding_utils
 from model.tacotron2 import Tacotron2
+from scipy.stats import zscore
 
 
 def load_dataset(filepath, config, dataset_dir, base_dir="./"):
@@ -32,6 +33,11 @@ def load_dataset(filepath, config, dataset_dir, base_dir="./"):
             )
 
             args["speaker_ids"] = encoder.transform(df.speaker_id)
+        
+        if "features" in config['model']['extensions']:
+            features = config['extensions']['features']['allowed_features']
+            if config['extensions']['features']['normalize_by'] is None:
+                args['features'] = zscore(df[features]).values.tolist()
 
     return TTSDataset(**args, base_dir=dataset_dir)
 
