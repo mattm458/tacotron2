@@ -1,10 +1,7 @@
 data:
-  #train: "data/ljs_audio_text_train_filelist.txt"
-  #test: "data/ljs_audio_text_test_filelist.txt"
-  #val: "data/ljs_audio_text_val_filelist.txt"
-  train: "data/mailabs_audio_text_train_filelist.txt"
-  test: "data/mailabs_audio_text_test_filelist.txt"
-  val: "data/mailabs_audio_text_val_filelist.txt"
+  train: "data/ljspeech-train.csv"
+  test: "data/ljspeech-test.csv"
+  val: "data/ljspeech-dev.csv"
   num_workers: 8
   prefetch_factor: 32
 preprocessing:
