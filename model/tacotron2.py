@@ -44,6 +44,7 @@ class Tacotron2(pl.LightningModule):
         speaker_embeddings=None,
         speaker_embeddings_dim=None,
         speech_features=False,
+        speech_features_key=None,
         speech_feature_dim=None,
     ):
         """Create a Tacotron2 object.
@@ -67,7 +68,7 @@ class Tacotron2(pl.LightningModule):
 
         self.gst = None
         self.speaker_embeddings = None
-        self.speech_features = False
+        self.speech_features_key = speech_features_key
 
         self.embedding_dim = char_embedding_dim
 
@@ -79,9 +80,7 @@ class Tacotron2(pl.LightningModule):
             self.embedding_dim += speaker_embeddings_dim
             self.speaker_embeddings = speaker_embeddings
 
-        if speech_features is not None:
-            self.embedding_dim += speech_feature_dim
-            self.speech_features = True
+        self.speech_features = speech_features
 
         self.lr = lr
         self.weight_decay = weight_decay
@@ -127,6 +126,7 @@ class Tacotron2(pl.LightningModule):
             att_dim=att_dim,
             rnn_hidden_dim=rnn_hidden_dim,
             dropout=dropout,
+            speech_feature_dim=speech_feature_dim,
         )
 
         # Postnet layer. Done here since it applies to the entire Mel spectrogram output.
@@ -198,23 +198,18 @@ class Tacotron2(pl.LightningModule):
         #     gst = gst.repeat(1, encoded.shape[1], 1)
         #     encoded = torch.cat([encoded, gst], dim=2)
 
+        # Create a mask for the encoded characters
+        encoded_mask = (
+            torch.arange(tts_data["chars_idx"].shape[1], device=self.device)[None, :]
+            < tts_metadata["chars_idx_len"][:, None]
+        )
+
         if self.speaker_embeddings is not None:
             speaker_embeddings = self.speaker_embeddings(
                 tts_metadata["speaker_id"]
             ).unsqueeze(1)
             speaker_embeddings = speaker_embeddings.repeat(1, encoded.shape[1], 1)
             encoded = torch.cat([encoded, speaker_embeddings], dim=2)
-
-        if self.speech_features:
-            speech_features = tts_metadata["features"].unsqueeze(1)
-            speech_features = speech_features.repeat(1, encoded.shape[1], 1)
-            encoded = torch.cat([encoded, speech_features], dim=2)
-
-        # Create a mask for the encoded characters
-        encoded_mask = (
-            torch.arange(tts_data["chars_idx"].shape[1], device=self.device)[None, :]
-            < tts_metadata["chars_idx_len"][:, None]
-        )
 
         # Transform the encoded characters for attention
         att_encoded = self.att_encoder(encoded)
@@ -236,6 +231,7 @@ class Tacotron2(pl.LightningModule):
             out_len=tts_data["mel_spectrogram"].shape[1],
         )
 
+        max_len = 0
         if use_teacher_forcing:
             # Decoder input: go frame (all ones), the complete Mel spectrogram, and a final 0
             # padding frame for iteration purposes
@@ -246,7 +242,9 @@ class Tacotron2(pl.LightningModule):
                 ],
                 1,
             )
+            max_len = decoder_in.shape[1] - 1
         else:
+            max_len = tts_data["mel_spectrogram"].shape[1]
             decoder_in = torch.zeros(batch_size, num_mels, device=self.device)
 
         # If necessary, apply the prenet to the entire Mel spectrogram output
@@ -258,7 +256,7 @@ class Tacotron2(pl.LightningModule):
         alignments = []
 
         # Iterate through all decoder inputs
-        for i in range(0, decoder_in.shape[1] - 1):
+        for i in range(0, max_len):
             # Get the frame processed by the prenet
             if use_teacher_forcing:
                 prev_mel_prenet = decoder_in[:, i]
@@ -284,6 +282,7 @@ class Tacotron2(pl.LightningModule):
                 encoded=encoded,
                 att_encoded=att_encoded,
                 encoded_mask=encoded_mask,
+                speech_features=tts_metadata[self.speech_features_key],
             )
 
             # Save decoder output
@@ -292,7 +291,7 @@ class Tacotron2(pl.LightningModule):
             alignments.append(att_weights)
 
             # Prepare for the next iteration
-            if not use_teacher_forcing and random() > teacher_forcing:
+            if not use_teacher_forcing:
                 decoder_in = mel_out.detach()
 
         mels = torch.stack(mels, dim=1)
@@ -379,13 +378,29 @@ class Tacotron2(pl.LightningModule):
         loss = gate_loss + mel_loss + mel_post_loss
 
         return {
-            "loss": loss,
+            "loss": loss.detach(),
             "mel_spectrogram_pred": mel_spectrogram[0].detach(),
             "mel_spectrogram": tts_data["mel_spectrogram"][0].detach(),
             "alignment": alignment[0].detach(),
             "gate": tts_data["gate"][0].detach(),
             "gate_pred": gate[0].detach(),
         }
+
+    def predict_step(self, batch, batch_idx, dataloader_idx):
+        tts_data, tts_metadata = batch
+
+        gst = None
+        if self.gst is not None:
+            gst = self.gst(tts_data["mel_spectrogram"])
+            mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
+                batch, gst=gst, teacher_forcing=False
+            )
+        else:
+            mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
+                batch, teacher_forcing=False
+            )
+
+        return mel_spectrogram, mel_spectrogram_post, gate, alignment
 
     def validation_step_end(self, outputs):
         self.log("val_loss", outputs["loss"].detach(), on_step=True)
@@ -420,37 +435,6 @@ class Tacotron2(pl.LightningModule):
 
     def training_step_end(self, outputs):
         self.log("training_loss", outputs["loss"].detach(), on_step=True)
-
-        if self.train_i % 100 == 0:
-            self.logger.experiment.add_image(
-                "mel_spectrogram",
-                plot_spectrogram_to_numpy(outputs["mel_spectrogram"].cpu().T.numpy()),
-                self.train_i,
-                dataformats="HWC",
-            )
-            self.logger.experiment.add_image(
-                "mel_spectrogram_predicted",
-                plot_spectrogram_to_numpy(
-                    outputs["mel_spectrogram_pred"].cpu().T.numpy()
-                ),
-                self.train_i,
-                dataformats="HWC",
-            )
-            self.logger.experiment.add_image(
-                "alignment",
-                plot_alignment_to_numpy(outputs["alignment"].cpu().T.numpy()),
-                self.train_i,
-                dataformats="HWC",
-            )
-            self.logger.experiment.add_image(
-                "gate",
-                plot_gate_outputs_to_numpy(
-                    outputs["gate"].cpu().squeeze().T.numpy(),
-                    torch.sigmoid(outputs["gate_pred"]).squeeze().cpu().T.numpy(),
-                ),
-                self.train_i,
-                dataformats="HWC",
-            )
 
         if self.train_i % 1000 == 0:
             for name, parameter in self.named_parameters():

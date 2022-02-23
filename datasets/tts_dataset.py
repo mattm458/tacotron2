@@ -23,11 +23,15 @@ class TTSDataset(Dataset):
         base_dir,
         speaker_ids=None,
         features=None,
+        features_log=None,
+        features_norm=None,
+        features_log_norm=None,
         allowed_chars=ALLOWED_CHARS,
         end_token="^",
         # sample_rate=22050,
-        sample_rate=24000,
+        sample_rate=22050,
         resample_rate=16000,
+        # resample_rate=None,
         n_fft=1024,
         win_length=1024,
         hop_length=256,
@@ -73,10 +77,15 @@ class TTSDataset(Dataset):
         self.base_dir = base_dir
 
         self.features = features
+        self.features_log = features_log
+        self.features_norm = features_norm
+        self.features_log_norm = features_log_norm
 
         # Preprocessing step - ensure textual data only contains allowed characters
         allowed_chars_re = re.compile(f"[^{allowed_chars}]+")
-        self.texts = [allowed_chars_re.sub("", unidecode.unidecode(t)) for t in texts]
+        self.texts = [
+            allowed_chars_re.sub("", unidecode.unidecode(t)).lower() for t in texts
+        ]
 
         self.speaker_ids = speaker_ids
 
@@ -175,8 +184,15 @@ class TTSDataset(Dataset):
 
         if self.speaker_ids is not None:
             out_metadata["speaker_id"] = torch.IntTensor([self.speaker_ids[i]])
-        
+
         if self.features is not None:
-            out_metadata['features'] = torch.Tensor([self.features[i]])
+            out_metadata["features"] = torch.Tensor([self.features[i]])
+        if self.features_log is not None:
+            out_metadata["features_log"] = torch.Tensor([self.features_log[i]])
+        if self.features_norm is not None:
+            out_metadata['features_norm'] = torch.Tensor([self.features_norm[i]])
+        if self.features_log_norm is not None:
+            out_metadata['features_log_norm'] = torch.Tensor([self.features_log_norm[i]])
+
 
         return out_data, out_metadata

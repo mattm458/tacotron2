@@ -21,6 +21,7 @@ class Decoder(nn.Module):
         att_dim,
         rnn_hidden_dim,
         dropout,
+        speech_feature_dim=None,
     ):
         """Create a Decoder object.
 
@@ -46,8 +47,13 @@ class Decoder(nn.Module):
             attention_location_kernel_size=31,
         )
 
+        speech_feature_dim = 0 if speech_feature_dim is None else speech_feature_dim
+        self.speech_features = speech_feature_dim is not None
+
         # Decoder 2-layer LSTM cells
-        self.lstm1 = nn.LSTMCell(att_rnn_dim + embedding_dim, rnn_hidden_dim, bias=1)
+        self.lstm1 = nn.LSTMCell(
+            att_rnn_dim + embedding_dim + speech_feature_dim, rnn_hidden_dim, bias=1
+        )
         self.lstm_dropout = nn.Dropout(0.1)
 
         # Final layer producing Mel output
@@ -71,6 +77,7 @@ class Decoder(nn.Module):
         encoded,
         att_encoded,
         encoded_mask,
+        speech_features=None
     ):
         """Perform a decoder forward pass.
 
@@ -99,14 +106,20 @@ class Decoder(nn.Module):
             [att_weights.unsqueeze(1), att_weights_cum.unsqueeze(1)], 1
         )
         att_context, att_weights = self.attention(
-            att_h, encoded, att_encoded, att_weights_cat, encoded_mask)
+            att_h, encoded, att_encoded, att_weights_cat, encoded_mask
+        )
 
         # Save cumulative attention weights
         att_weights_cum += att_weights
 
         # Decoder ---------------------------------------------------------------------------------
         # Run attention output through the decoder RNN
-        decoder_input = torch.concat([att_h, att_context], -1)
+        decoder_input = [att_h, att_context]
+        if self.speech_features:
+            decoder_input.append(speech_features)
+        
+        decoder_input = torch.concat(decoder_input, -1)
+
         rnn_h, rnn_c = self.lstm1(decoder_input, rnn_hidden)
         rnn_h = self.lstm_dropout(rnn_h)
 

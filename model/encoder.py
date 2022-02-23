@@ -51,18 +51,17 @@ class Encoder(nn.Module):
         self.lstm = nn.LSTM(
             embedding_dim, embedding_dim // 2, batch_first=True, bidirectional=True
         )
+        self.lstm.flatten_parameters()
+
 
     def forward(self, char_idx, char_idx_len):
         embedded = self.embedding(char_idx)
-        embedded = embedded.transpose(1, 2)
 
-        conv = self.convolutions(embedded)
-        conv = conv.transpose(1, 2)
+        conv = self.convolutions(embedded.transpose(1,2)).transpose(1,2)
 
         packed = nn.utils.rnn.pack_padded_sequence(
             conv, char_idx_len.cpu(), batch_first=True, enforce_sorted=False
         )
-        self.lstm.flatten_parameters()
         encoded, _ = self.lstm(packed)
         encoded, _ = nn.utils.rnn.pad_packed_sequence(encoded, batch_first=True)
 
