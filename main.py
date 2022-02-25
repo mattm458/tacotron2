@@ -19,6 +19,7 @@ from torch import nn
 from datasets.tts_dataloader import TTSDataLoader
 from datasets.tts_dataset import TTSDataset
 from model.gst import GST
+from model.prosodic_features import prosody_detector
 from model.speaker_embeddings import utils as speaker_embedding_utils
 from model.tacotron2 import Tacotron2
 
@@ -127,6 +128,7 @@ if __name__ == "__main__":
             prefetch_factor=config["data"]["prefetch_factor"],
             pin_memory=True,
             shuffle=True,
+            persistent_workers=True,
         )
         test_dataloader = TTSDataLoader(
             test_dataset,
@@ -134,6 +136,7 @@ if __name__ == "__main__":
             num_workers=config["data"]["num_workers"],
             pin_memory=True,
             shuffle=False,
+            persistent_workers=True,
         )
         val_dataloader = TTSDataLoader(
             val_dataset,
@@ -141,6 +144,7 @@ if __name__ == "__main__":
             num_workers=config["data"]["num_workers"],
             pin_memory=True,
             shuffle=False,
+            persistent_workers=True,
         )
 
     tacotron_args = {}
@@ -162,6 +166,20 @@ if __name__ == "__main__":
             tacotron_args["speech_feature_dim"] = len(
                 config["extensions"]["features"]["allowed_features"]
             )
+
+            if "feature_detector" in config["model"]["extensions"]:
+                prosody_predictor = (
+                    prosody_detector.ProsodyPredictorLightning.load_from_checkpoint(
+                        config["extensions"]["feature_detector"]["checkpoint"],
+                        output_dim=tacotron_args["speech_feature_dim"],
+                    )
+                )
+
+                if config["extensions"]["feature_detector"]["requires_grad"] == False:
+                    for x in prosody_predictor.parameters():
+                        x.requires_grad = False
+
+                tacotron_args["feature_detector"] = prosody_predictor
 
     if args.inference:
         tacotron2 = Tacotron2.load_from_checkpoint(
@@ -230,7 +248,29 @@ if __name__ == "__main__":
         soundfile.write("output.wav", wav, samplerate=16000)
 
     elif args.train:
-        tacotron2 = Tacotron2(
+        # tacotron2 = Tacotron2(
+        #     lr=config["training"]["lr"],
+        #     weight_decay=config["training"]["weight_decay"],
+        #     num_chars=len(config["preprocessing"]["valid_chars"]) + 1,
+        #     encoder_kernel_size=config["encoder"]["encoder_kernel_size"],
+        #     num_mels=config["audio"]["num_mels"],
+        #     char_embedding_dim=config["encoder"]["char_embedding_dim"],
+        #     prenet_dim=config["decoder"]["prenet_dim"],
+        #     att_rnn_dim=config["attention"]["att_rnn_dim"],
+        #     att_dim=config["attention"]["att_dim"],
+        #     rnn_hidden_dim=config["decoder"]["rnn_hidden_dim"],
+        #     postnet_dim=config["decoder"]["postnet_dim"],
+        #     dropout=config["tacotron2"]["dropout"],
+        #     # gst=gst,
+        #     # gst_dim=256,
+        #     **tacotron_args
+        # )
+
+        feature_detector = tacotron_args["feature_detector"]
+        del tacotron_args["feature_detector"]
+
+        tacotron2 = Tacotron2.load_from_checkpoint(
+            args.checkpoint,
             lr=config["training"]["lr"],
             weight_decay=config["training"]["weight_decay"],
             num_chars=len(config["preprocessing"]["valid_chars"]) + 1,
@@ -248,6 +288,8 @@ if __name__ == "__main__":
             **tacotron_args
         )
 
+        tacotron2.prosody_predictor = feature_detector
+
         trainer = Trainer(
             devices=config["training"]["devices"],
             accelerator=config["training"]["accelerator"],
@@ -260,5 +302,5 @@ if __name__ == "__main__":
             tacotron2,
             train_dataloaders=train_dataloader,
             val_dataloaders=val_dataloader,
-            ckpt_path=args.checkpoint,
+            # ckpt_path=args.checkpoint,
         )

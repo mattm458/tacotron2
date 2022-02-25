@@ -46,6 +46,7 @@ class Tacotron2(pl.LightningModule):
         speech_features=False,
         speech_features_key=None,
         speech_feature_dim=None,
+        feature_detector=None,
     ):
         """Create a Tacotron2 object.
 
@@ -81,6 +82,8 @@ class Tacotron2(pl.LightningModule):
             self.speaker_embeddings = speaker_embeddings
 
         self.speech_features = speech_features
+
+        self.prosody_predictor = feature_detector
 
         self.lr = lr
         self.weight_decay = weight_decay
@@ -302,6 +305,15 @@ class Tacotron2(pl.LightningModule):
         mels_post = self.postnet(mels.transpose(1, 2)).transpose(1, 2)
         mels_post = mels + mels_post
 
+        mel_mask = (
+            torch.arange(mels_post.shape[1], device=self.device)[None, :]
+            >= tts_metadata["mel_spectrogram_len"][:, None]
+        )
+
+        mels[mel_mask] = 0.0
+        mels_post[mel_mask] = 0.0
+        gates[mel_mask] = -1000.0
+
         return mels, mels_post, gates, alignments
 
     def training_step(self, batch, batch_idx):
@@ -317,25 +329,26 @@ class Tacotron2(pl.LightningModule):
         else:
             mel_spectrogram, mel_spectrogram_post, gate, alignment = self(batch)
 
-        mel_mask = (
-            torch.arange(tts_data["mel_spectrogram"].shape[1], device=self.device)[
-                None, :
-            ]
-            >= tts_metadata["mel_spectrogram_len"][:, None]
-        )
-
-        mel_spectrogram[mel_mask] = 0.0
-        mel_spectrogram_post[mel_mask] = 0.0
-        gate[mel_mask] = -1000.0
-
         gate_loss = F.binary_cross_entropy_with_logits(gate, tts_data["gate"])
         mel_loss = F.mse_loss(mel_spectrogram, tts_data["mel_spectrogram"])
         mel_post_loss = F.mse_loss(mel_spectrogram_post, tts_data["mel_spectrogram"])
 
         loss = gate_loss + mel_loss + mel_post_loss
 
+        if self.prosody_predictor is not None:
+            pred_mel_prosody = self.prosody_predictor(
+                mel_spectrogram, tts_metadata["mel_spectrogram_len"]
+            )
+            mel_prosody = self.prosody_predictor(
+                tts_data["mel_spectrogram"], tts_metadata["mel_spectrogram_len"]
+            )
+            prosody_loss = F.mse_loss(pred_mel_prosody, mel_prosody)
+
+            loss += prosody_loss
+
         return {
             "loss": loss,
+            "prosody_loss": prosody_loss.detach(),
             "mel_spectrogram_pred": mel_spectrogram[0].detach(),
             "mel_spectrogram": tts_data["mel_spectrogram"][0].detach(),
             "alignment": alignment[0][
@@ -359,26 +372,26 @@ class Tacotron2(pl.LightningModule):
         else:
             mel_spectrogram, mel_spectrogram_post, gate, alignment = self(batch)
 
-        mel_mask = (
-            torch.arange(tts_data["mel_spectrogram"].shape[1], device=self.device)[
-                None, :
-            ]
-            >= tts_metadata["mel_spectrogram_len"][:, None]
-        )
-
-        mel_spectrogram[mel_mask] = 0.0
-        mel_spectrogram_post[mel_mask] = 0.0
-
-        gate_loss = F.binary_cross_entropy_with_logits(
-            gate, tts_data["gate"], weight=(~mel_mask).unsqueeze(2).int()
-        )
+        gate_loss = F.binary_cross_entropy_with_logits(gate, tts_data["gate"])
         mel_loss = F.mse_loss(mel_spectrogram, tts_data["mel_spectrogram"])
         mel_post_loss = F.mse_loss(mel_spectrogram_post, tts_data["mel_spectrogram"])
 
         loss = gate_loss + mel_loss + mel_post_loss
 
+        if self.prosody_predictor is not None:
+            pred_mel_prosody = self.prosody_predictor(
+                mel_spectrogram_post, tts_metadata["mel_spectrogram_len"]
+            )
+            mel_prosody = self.prosody_predictor(
+                tts_data["mel_spectrogram"], tts_metadata["mel_spectrogram_len"]
+            )
+            prosody_loss = F.mse_loss(pred_mel_prosody, mel_prosody)
+
+            loss += prosody_loss
+
         return {
             "loss": loss.detach(),
+            "prosody_loss": prosody_loss.detach(),
             "mel_spectrogram_pred": mel_spectrogram[0].detach(),
             "mel_spectrogram": tts_data["mel_spectrogram"][0].detach(),
             "alignment": alignment[0].detach(),
@@ -404,6 +417,7 @@ class Tacotron2(pl.LightningModule):
 
     def validation_step_end(self, outputs):
         self.log("val_loss", outputs["loss"].detach(), on_step=True)
+        self.log("val_prosody_loss", outputs["prosody_loss"].detach(), on_step=True)
 
         self.logger.experiment.add_image(
             "val_mel_spectrogram",
@@ -435,6 +449,12 @@ class Tacotron2(pl.LightningModule):
 
     def training_step_end(self, outputs):
         self.log("training_loss", outputs["loss"].detach(), on_step=True)
+        self.log(
+            "prosody_loss",
+            outputs["prosody_loss"].detach(),
+            on_step=True,
+            prog_bar=True,
+        )
 
         if self.train_i % 1000 == 0:
             for name, parameter in self.named_parameters():
