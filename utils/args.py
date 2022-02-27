@@ -8,51 +8,62 @@ parser.add_argument(
     required=True,
     help="A YAML configuration file containing hyperparameters",
 )
-parser.add_argument(
+
+subparsers = parser.add_subparsers(required=True, dest="mode")
+
+train_subparser = subparsers.add_parser("train", help="Train a Tacotron 2 model")
+
+train_subparser.add_argument(
     "--dataset-dir",
+    type=str,
+    required=True,
+    help="The base dataset directory",
+)
+
+train_subparser.add_argument(
+    "--feature-extractor-checkpoint",
     type=str,
     required=False,
     default=None,
-    help="The base dataset directory",
+    help="Feature extractor checkpoint required for initial fine-tuning training",
 )
-parser.add_argument(
-    "--inference",
-    type=bool,
-    required=False,
-    default=False,
-    help="Set to True to conduct inference instead of training",
-)
-parser.add_argument(
-    "--train",
-    type=bool,
-    required=False,
-    default=True,
-    help="Set to True to conduct training",
-)
-parser.add_argument(
+
+train_subparser.add_argument(
     "--checkpoint",
     type=str,
     default=None,
     required=False,
     help="The path to a model checkpoint",
 )
-parser.add_argument(
-    "--say", required=False, type=str, default=None, help="The text to say"
+
+say_subparser = subparsers.add_parser(
+    "say", help="Produce a WAV file from a given text string"
 )
-parser.add_argument(
+
+say_subparser.add_argument(
+    "--text", required=True, type=str, default=None, help="The text to say"
+)
+say_subparser.add_argument(
     "--wav-out",
     type=str,
-    default=None,
     required=False,
+    default="out.wav",
     help="Where to save a generated wav file",
 )
-parser.add_argument(
+say_subparser.add_argument(
     "--with-speech-features",
     type=float,
-    required=None,
+    required=False,
     default=None,
     nargs="+",
     help="Speech features to include in inference",
+)
+
+say_subparser.add_argument(
+    "--checkpoint",
+    type=str,
+    required=True,
+    help="The path to a model checkpoint",
 )
 
 args = parser.parse_args()

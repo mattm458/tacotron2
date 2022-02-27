@@ -5,8 +5,8 @@ import torch
 import pytorch_lightning as pl
 
 
-class ProsodyPredictor(nn.Module):
-    def __init__(self, output_dim=1):
+class ProsodyPredictor(pl.LightningModule):
+    def __init__(self, output_dim):
         super().__init__()
 
         convolutions = []
@@ -42,16 +42,6 @@ class ProsodyPredictor(nn.Module):
         h = h.transpose(1, 0).contiguous().view(mel_spectrogram.shape[0], -1)
 
         return self.linear(h)
-
-
-class ProsodyPredictorLightning(pl.LightningModule):
-    def __init__(self, output_dim):
-        super().__init__()
-
-        self.prosody_predictor = ProsodyPredictor(output_dim)
-
-    def forward(self, mel_spectrogram, mel_spectrogram_len):
-        return self.prosody_predictor(mel_spectrogram, mel_spectrogram_len)
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=0.001)

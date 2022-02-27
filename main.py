@@ -58,7 +58,7 @@ if __name__ == "__main__":
     with open(args.config, "r") as infile:
         config = yaml.load(infile, Loader=yaml.Loader)
 
-    if args.train:
+    if args.mode == "train":
         dataset_dir = args.dataset_dir
 
         train_dataset = load_dataset(config["data"]["train"], config, dataset_dir)
@@ -93,6 +93,9 @@ if __name__ == "__main__":
 
     tacotron_args = {}
 
+    use_trainer_checkpoint = True
+    prosody_predictor = None
+
     if "model" in config and "extensions" in config["model"]:
         if "speaker_embeddings" in config["model"]["extensions"]:
             tacotron_args["speaker_embeddings"] = nn.Embedding(
@@ -112,20 +115,30 @@ if __name__ == "__main__":
             )
 
             if "feature_detector" in config["model"]["extensions"]:
-                prosody_predictor = (
-                    prosody_detector.ProsodyPredictorLightning.load_from_checkpoint(
-                        config["extensions"]["feature_detector"]["checkpoint"],
-                        output_dim=tacotron_args["speech_feature_dim"],
+                if (
+                    args.feature_extractor_checkpoint is None
+                    and args.checkpoint is None
+                ):
+                    print(
+                        "Error! Transfer learning of Tacotron model with uninitialized prosody detector!"
                     )
-                )
+                    exit()
 
-                if config["extensions"]["feature_detector"]["requires_grad"] == False:
-                    for x in prosody_predictor.parameters():
-                        x.requires_grad = False
+                if args.feature_extractor_checkpoint is not None:
+                    prosody_predictor = (
+                        prosody_detector.ProsodyPredictor.load_from_checkpoint(
+                            args.feature_extractor_checkpoint,
+                            output_dim=tacotron_args["speech_feature_dim"],
+                        )
+                    )
+                    use_trainer_checkpoint = False
+                else:
+                    prosody_predictor = prosody_detector.ProsodyPredictor(
+                        output_dim=tacotron_args["speech_feature_dim"]
+                    )
+                    tacotron_args["feature_detector"] = prosody_predictor
 
-                tacotron_args["feature_detector"] = prosody_predictor
-
-    if args.inference:
+    if args.mode == "say":
         tacotron2 = Tacotron2.load_from_checkpoint(
             checkpoint_path=args.checkpoint,
             lr=config["training"]["lr"],
@@ -140,7 +153,8 @@ if __name__ == "__main__":
             rnn_hidden_dim=config["decoder"]["rnn_hidden_dim"],
             postnet_dim=config["decoder"]["postnet_dim"],
             dropout=config["tacotron2"]["dropout"],
-            **tacotron_args
+            teacher_forcing=False,
+            **tacotron_args,
         )
 
         ALLOWED_CHARS = (
@@ -191,60 +205,64 @@ if __name__ == "__main__":
         )
         soundfile.write("output.wav", wav, samplerate=16000)
 
-    elif args.train:
-        # tacotron2 = Tacotron2(
-        #     lr=config["training"]["lr"],
-        #     weight_decay=config["training"]["weight_decay"],
-        #     num_chars=len(config["preprocessing"]["valid_chars"]) + 1,
-        #     encoder_kernel_size=config["encoder"]["encoder_kernel_size"],
-        #     num_mels=config["audio"]["num_mels"],
-        #     char_embedding_dim=config["encoder"]["char_embedding_dim"],
-        #     prenet_dim=config["decoder"]["prenet_dim"],
-        #     att_rnn_dim=config["attention"]["att_rnn_dim"],
-        #     att_dim=config["attention"]["att_dim"],
-        #     rnn_hidden_dim=config["decoder"]["rnn_hidden_dim"],
-        #     postnet_dim=config["decoder"]["postnet_dim"],
-        #     dropout=config["tacotron2"]["dropout"],
-        #     # gst=gst,
-        #     # gst_dim=256,
-        #     **tacotron_args
-        # )
+    elif args.mode == "train":
+        if "featuredetector" in tacotron_args:
+            feature_detector = tacotron_args["feature_detector"]
+            del tacotron_args["feature_detector"]
 
-        feature_detector = tacotron_args["feature_detector"]
-        del tacotron_args["feature_detector"]
+        if use_trainer_checkpoint:
+            tacotron2 = Tacotron2(
+                lr=config["training"]["lr"],
+                weight_decay=config["training"]["weight_decay"],
+                num_chars=len(config["preprocessing"]["valid_chars"]) + 1,
+                encoder_kernel_size=config["encoder"]["encoder_kernel_size"],
+                num_mels=config["audio"]["num_mels"],
+                char_embedding_dim=config["encoder"]["char_embedding_dim"],
+                prenet_dim=config["decoder"]["prenet_dim"],
+                att_rnn_dim=config["attention"]["att_rnn_dim"],
+                att_dim=config["attention"]["att_dim"],
+                rnn_hidden_dim=config["decoder"]["rnn_hidden_dim"],
+                postnet_dim=config["decoder"]["postnet_dim"],
+                dropout=config["tacotron2"]["dropout"],
+                teacher_forcing=config["training"]["teacher_forcing"],
+                **tacotron_args,
+            )
+        else:
+            tacotron2 = Tacotron2.load_from_checkpoint(
+                args.checkpoint,
+                lr=config["training"]["lr"],
+                weight_decay=config["training"]["weight_decay"],
+                num_chars=len(config["preprocessing"]["valid_chars"]) + 1,
+                encoder_kernel_size=config["encoder"]["encoder_kernel_size"],
+                num_mels=config["audio"]["num_mels"],
+                char_embedding_dim=config["encoder"]["char_embedding_dim"],
+                prenet_dim=config["decoder"]["prenet_dim"],
+                att_rnn_dim=config["attention"]["att_rnn_dim"],
+                att_dim=config["attention"]["att_dim"],
+                rnn_hidden_dim=config["decoder"]["rnn_hidden_dim"],
+                postnet_dim=config["decoder"]["postnet_dim"],
+                dropout=config["tacotron2"]["dropout"],
+                teacher_forcing=config["training"]["teacher_forcing"],
+                # gst=gst,
+                # gst_dim=256,
+                **tacotron_args,
+            )
 
-        tacotron2 = Tacotron2.load_from_checkpoint(
-            args.checkpoint,
-            lr=config["training"]["lr"],
-            weight_decay=config["training"]["weight_decay"],
-            num_chars=len(config["preprocessing"]["valid_chars"]) + 1,
-            encoder_kernel_size=config["encoder"]["encoder_kernel_size"],
-            num_mels=config["audio"]["num_mels"],
-            char_embedding_dim=config["encoder"]["char_embedding_dim"],
-            prenet_dim=config["decoder"]["prenet_dim"],
-            att_rnn_dim=config["attention"]["att_rnn_dim"],
-            att_dim=config["attention"]["att_dim"],
-            rnn_hidden_dim=config["decoder"]["rnn_hidden_dim"],
-            postnet_dim=config["decoder"]["postnet_dim"],
-            dropout=config["tacotron2"]["dropout"],
-            # gst=gst,
-            # gst_dim=256,
-            **tacotron_args
-        )
-
-        tacotron2.prosody_predictor = feature_detector
+            tacotron2.prosody_predictor = feature_detector
 
         trainer = Trainer(
             devices=config["training"]["devices"],
             accelerator=config["training"]["accelerator"],
             precision=config["training"]["precision"],
             gradient_clip_val=1.0,
-            max_epochs=150,
+            max_epochs=config["training"]["max_epochs"]
+            if "max_epochs" in config["training"]
+            else None,
         )
 
         trainer.fit(
             tacotron2,
             train_dataloaders=train_dataloader,
             val_dataloaders=val_dataloader,
-            # ckpt_path=args.checkpoint,
+            ckpt_path=args.checkpoint if use_trainer_checkpoint else None,
         )
