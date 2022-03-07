@@ -41,6 +41,7 @@ class TTSDataset(Dataset):
         power=1,
         silence=0.1,
         trim=True,
+        max_mel_len=800,
     ):
         """Create a TTSDataset object.
 
@@ -82,6 +83,8 @@ class TTSDataset(Dataset):
         self.features_log_norm = features_log_norm
 
         self.speaker_ids = speaker_ids
+
+        self.max_mel_len = max_mel_len
 
         effective_sample_rate = resample_rate if resample_rate else sample_rate
 
@@ -163,9 +166,24 @@ class TTSDataset(Dataset):
 
         # Create gate output indicating whether the TTS model should continue producing Mel
         # spectrogram frames
-        gate = torch.ones(len(mel_spectrogram), 1)
-        gate[-1] = 0.0
-        gate_len = torch.IntTensor([len(gate)])
+        gate = torch.cat(
+            [
+                torch.ones(len(mel_spectrogram) - 1, 1),
+                torch.zeros(self.max_mel_len - len(mel_spectrogram) + 1, 1),
+            ]
+        )
+
+        gate_len = torch.IntTensor([len(mel_spectrogram)])
+
+        mel_spectrogram = torch.cat(
+            [
+                mel_spectrogram,
+                torch.zeros(
+                    self.max_mel_len - len(mel_spectrogram), mel_spectrogram.shape[1]
+                ),
+            ],
+            dim=0,
+        )
 
         # Text preprocessing ------------------------------------------------------------
         # Encode the text
