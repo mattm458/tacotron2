@@ -68,8 +68,8 @@ class Tacotron2(pl.LightningModule):
         """
         super().__init__()
 
-        self.teacher_forcing=teacher_forcing
-        
+        self.teacher_forcing = teacher_forcing
+
         self.gst = None
         self.speaker_embeddings = None
         self.speech_features_key = speech_features_key
@@ -190,7 +190,7 @@ class Tacotron2(pl.LightningModule):
             teacher_forcing = 1.0 if teacher_forcing else 0.0
         elif isinstance(teacher_forcing, float):
             all_teacher_forcing = teacher_forcing == 1.0
-    
+
         # Encoding --------------------------------------------------------------------------------
         encoded = self.encoder(tts_data["chars_idx"], tts_metadata["chars_idx_len"])
 
@@ -232,7 +232,7 @@ class Tacotron2(pl.LightningModule):
         )
 
         max_len = 0
-        
+
         # Decoder input: go frame (all ones), the complete Mel spectrogram, and a final 0
         # padding frame for iteration purposes
         decoder_in = torch.concat(
@@ -243,8 +243,8 @@ class Tacotron2(pl.LightningModule):
             1,
         )
         max_len = decoder_in.shape[1] - 1
-        
-        prev_mel = decoder_in[:,0]
+
+        prev_mel = decoder_in[:, 0]
 
         mels = []
         gates = []
@@ -286,7 +286,7 @@ class Tacotron2(pl.LightningModule):
 
             # Prepare for the next iteration
             if teacher_force:
-                prev_mel = decoder_in[:,i+1]
+                prev_mel = decoder_in[:, i + 1]
             else:
                 prev_mel = mel_out.detach()
 
@@ -320,7 +320,9 @@ class Tacotron2(pl.LightningModule):
                 batch, gst=gst, teacher_forcing=self.teacher_forcing
             )
         else:
-            mel_spectrogram, mel_spectrogram_post, gate, alignment = self(batch, teacher_forcing=self.teacher_forcing)
+            mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
+                batch, teacher_forcing=self.teacher_forcing
+            )
 
         gate_loss = F.binary_cross_entropy_with_logits(gate, tts_data["gate"])
         mel_loss = F.mse_loss(mel_spectrogram, tts_data["mel_spectrogram"])
@@ -343,7 +345,7 @@ class Tacotron2(pl.LightningModule):
         if self.prosody_predictor is not None:
             with torch.no_grad():
                 pred_mel_prosody = self.prosody_predictor(
-                    mel_spectrogram, tts_metadata["mel_spectrogram_len"]
+                    mel_spectrogram_post, tts_metadata["mel_spectrogram_len"]
                 )
                 mel_prosody = self.prosody_predictor(
                     tts_data["mel_spectrogram"], tts_metadata["mel_spectrogram_len"]
@@ -401,7 +403,7 @@ class Tacotron2(pl.LightningModule):
         out["loss"] = loss
         return out
 
-    def predict_step(self, batch, batch_idx, dataloader_idx):
+    def predict_step(self, batch, batch_idx):
         tts_data, tts_metadata = batch
 
         gst = None
