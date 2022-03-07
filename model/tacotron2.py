@@ -1,3 +1,7 @@
+import matplotlib
+
+matplotlib.use("Agg")
+
 from random import random
 
 import numpy as np
@@ -479,14 +483,14 @@ def save_figure_to_numpy(fig):
 def plot_spectrogram_to_numpy(spectrogram):
     fig, ax = plt.subplots(figsize=(12, 3))
     im = ax.imshow(spectrogram, aspect="auto", origin="lower")
-    plt.colorbar(im, ax=ax)
-    plt.xlabel("Frames")
-    plt.ylabel("Channels")
-    plt.tight_layout()
+    fig.colorbar(im, ax=ax)
+    ax.set_xlabel("Frames")
+    ax.set_ylabel("Channels")
+    fig.tight_layout()
 
     fig.canvas.draw()
     data = save_figure_to_numpy(fig)
-    plt.close()
+    plt.close(fig)
     return data
 
 
@@ -497,13 +501,13 @@ def plot_alignment_to_numpy(alignment, info=None):
     xlabel = "Decoder timestep"
     if info is not None:
         xlabel += "\n\n" + info
-    plt.xlabel(xlabel)
-    plt.ylabel("Encoder timestep")
-    plt.tight_layout()
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Encoder timestep")
+    fig.tight_layout()
 
     fig.canvas.draw()
     data = save_figure_to_numpy(fig)
-    plt.close()
+    plt.close(fig)
     return data
 
 
@@ -528,11 +532,11 @@ def plot_gate_outputs_to_numpy(gate_targets, gate_outputs):
         label="predicted",
     )
 
-    plt.xlabel("Frames (Green target, Red predicted)")
-    plt.ylabel("Gate State")
-    plt.tight_layout()
+    ax.set_xlabel("Frames (Green target, Red predicted)")
+    ax.set_ylabel("Gate State")
+    fig.tight_layout()
 
     fig.canvas.draw()
     data = save_figure_to_numpy(fig)
-    plt.close()
+    plt.close(fig)
     return data
