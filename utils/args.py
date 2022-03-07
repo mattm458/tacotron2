@@ -66,4 +66,39 @@ say_subparser.add_argument(
     help="The path to a model checkpoint",
 )
 
+
+test_subparser = subparsers.add_parser(
+    "test", help="Produce WAV files from the test set"
+)
+
+test_subparser.add_argument(
+    "--dir-out",
+    type=str,
+    required=True,
+    help="The directory to save generated wav files. If it does not exist, it will be created.",
+)
+
+# test_subparser.add_argument(
+#     "--with-speech-features",
+#     type=float,
+#     required=False,
+#     default=None,
+#     nargs="+",
+#     help="Speech features to include in inference",
+# )
+
+test_subparser.add_argument(
+    "--checkpoint",
+    type=str,
+    required=True,
+    help="The path to a model checkpoint",
+)
+
+test_subparser.add_argument(
+    "--dataset-dir",
+    type=str,
+    required=True,
+    help="The base dataset directory",
+)
+
 args = parser.parse_args()
