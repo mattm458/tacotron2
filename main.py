@@ -1,4 +1,5 @@
 import csv
+import os
 from os import path
 
 import librosa
@@ -14,6 +15,7 @@ from pytorch_lightning import Trainer
 from scipy.stats import zscore
 from sklearn.preprocessing import OrdinalEncoder
 from torch import nn
+from tqdm import tqdm
 
 from datasets.tts_dataloader import TTSDataLoader
 from datasets.tts_dataset import TTSDataset
@@ -24,12 +26,7 @@ from model.tacotron2 import Tacotron2
 from utils.args import args
 
 
-def load_dataset(filepath, config, dataset_dir, base_dir="./"):
-    df = pd.read_csv(
-        path.join(base_dir, filepath),
-        delimiter="|",
-        quoting=csv.QUOTE_NONE,
-    )
+def load_dataset(df, config, dataset_dir, base_dir="./", df_train=None):
     args = {"filenames": list(df.wav), "texts": list(df.text_normalized)}
 
     if "model" in config and "extensions" in config["model"]:
@@ -46,10 +43,34 @@ def load_dataset(filepath, config, dataset_dir, base_dir="./"):
         if "features" in config["model"]["extensions"]:
             features = config["extensions"]["features"]["allowed_features"]
             if config["extensions"]["features"]["normalize_by"] is None:
-                args["features"] = df[features].values.tolist()
-                args["features_log"] = np.log(df[features]).values.tolist()
-                args["features_norm"] = zscore(df[features]).values.tolist()
-                args["features_log_norm"] = zscore(np.log(df[features])).values.tolist()
+                features_log = np.log(df[features])
+                features_val = df[features]
+
+                args["features_log"] = features_log.values.tolist()
+                args["features"] = features_val.values.tolist()
+
+                if df_train is not None:
+                    features_train = df_train[features]
+                    features_mean = np.mean(features_train)
+                    features_std = np.std(features_train)
+
+                    features_log_train = np.log(df_train[features])
+                    features_log_mean = np.mean(features_log_train)
+                    features_log_std = np.std(features_log_train)
+                else:
+                    features_mean = np.mean(features_val)
+                    features_std = np.std(features_val)
+
+                    features_log_mean = np.mean(features_log)
+                    features_log_std = np.std(features_log)
+
+                features_norm = (features_val - features_mean) / features_std
+
+                features_log_norm = (
+                    features_log - features_log_mean
+                ) / features_log_std
+                args["features_log_norm"] = features_log_norm.values.tolist()
+                args["features_norm"] = features_norm.values.tolist()
 
     return TTSDataset(**args, base_dir=dataset_dir)
 
@@ -61,9 +82,25 @@ if __name__ == "__main__":
     if args.mode == "train":
         dataset_dir = args.dataset_dir
 
-        train_dataset = load_dataset(config["data"]["train"], config, dataset_dir)
-        test_dataset = load_dataset(config["data"]["test"], config, dataset_dir)
-        val_dataset = load_dataset(config["data"]["val"], config, dataset_dir)
+        df_train = pd.read_csv(
+            config["data"]["train"],
+            delimiter="|",
+            quoting=csv.QUOTE_NONE,
+        )
+        df_test = pd.read_csv(
+            config["data"]["test"],
+            delimiter="|",
+            quoting=csv.QUOTE_NONE,
+        )
+        df_val = pd.read_csv(
+            config["data"]["val"],
+            delimiter="|",
+            quoting=csv.QUOTE_NONE,
+        )
+
+        train_dataset = load_dataset(df_train, config, dataset_dir)
+        test_dataset = load_dataset(df_test, config, dataset_dir, df_train=df_train)
+        val_dataset = load_dataset(df_val, config, dataset_dir, df_train=df_train)
 
         train_dataloader = TTSDataLoader(
             train_dataset,
@@ -116,26 +153,36 @@ if __name__ == "__main__":
 
             if "feature_detector" in config["model"]["extensions"]:
                 if (
-                    args.feature_extractor_checkpoint is None
-                    and args.checkpoint is None
-                ):
+                    "feature_extractor_checkpoint" not in args
+                    or (
+                        "feature_extractor_checkpoint" in args
+                        and args.feature_extractor_checkpoint is None
+                    )
+                ) and args.checkpoint is None:
                     print(
                         "Error! Transfer learning of Tacotron model with uninitialized prosody detector!"
                     )
                     exit()
 
-                if args.feature_extractor_checkpoint is not None:
-                    prosody_predictor = (
-                        prosody_detector.ProsodyPredictor.load_from_checkpoint(
-                            args.feature_extractor_checkpoint,
-                            output_dim=tacotron_args["speech_feature_dim"],
-                        )
+                if (
+                    "feature_extractor_checkpoint" in args
+                    and args.feature_extractor_checkpoint is not None
+                ):
+                    prosody_predictor = prosody_detector.ProsodyPredictorLightning.load_from_checkpoint(
+                        args.feature_extractor_checkpoint,
+                        # output_dim=tacotron_args["speech_feature_dim"],
                     )
                     use_trainer_checkpoint = False
+                    tacotron_args["feature_detector"] = prosody_predictor
                 else:
-                    prosody_predictor = prosody_detector.ProsodyPredictor(
-                        output_dim=tacotron_args["speech_feature_dim"]
+                    prosody_predictor = prosody_detector.ProsodyPredictorLightning(
+                        # output_dim=tacotron_args["speech_feature_dim"]
                     )
+                    for x in prosody_predictor.prosody_predictor.parameters():
+                        x.requires_grad = False
+                    for x in prosody_predictor.parameters():
+                        x.requires_grad = False
+
                     tacotron_args["feature_detector"] = prosody_predictor
 
     if args.mode == "say":
@@ -166,7 +213,7 @@ if __name__ == "__main__":
 
         encoded = (
             torch.LongTensor(
-                encoder.transform([[x] for x in args.say.lower()] + [[end_token]])
+                encoder.transform([[x] for x in args.text.lower()] + [[end_token]])
             )
             .squeeze(1)
             .unsqueeze(0)
@@ -178,7 +225,8 @@ if __name__ == "__main__":
         }
         tts_metadata = {
             "chars_idx_len": torch.IntTensor([encoded.shape[1]]),
-            "features_log_norm": torch.Tensor([[3.0, 2.0, -0.1, 4]]),
+            "mel_spectrogram_len": torch.IntTensor([800]),
+            "features_log_norm": torch.Tensor([[0, 0, 0, 0, 4, 0, 0]]),
         }
 
         trainer = Trainer(
@@ -205,11 +253,88 @@ if __name__ == "__main__":
         )
         soundfile.write("output.wav", wav, samplerate=16000)
 
-    elif args.mode == "train":
-        if "featuredetector" in tacotron_args:
-            feature_detector = tacotron_args["feature_detector"]
-            del tacotron_args["feature_detector"]
+    if args.mode == "test":
+        if not path.exists(args.dir_out):
+            os.mkdir(args.dir_out)
 
+        dataset_dir = args.dataset_dir
+
+        df_train = pd.read_csv(
+            config["data"]["test"],
+            delimiter="|",
+            quoting=csv.QUOTE_NONE,
+        )
+        df_test = pd.read_csv(
+            config["data"]["test"],
+            delimiter="|",
+            quoting=csv.QUOTE_NONE,
+        )
+
+        train_dataset = load_dataset(df_train, config, dataset_dir)
+        test_dataset = load_dataset(df_test, config, dataset_dir, df_train=df_train)
+
+        test_dataloader = TTSDataLoader(
+            test_dataset,
+            batch_size=config["training"]["batch_size"],
+            num_workers=config["data"]["num_workers"],
+            pin_memory=True,
+            shuffle=False,
+            persistent_workers=True,
+        )
+
+        tacotron2 = Tacotron2.load_from_checkpoint(
+            checkpoint_path=args.checkpoint,
+            lr=config["training"]["lr"],
+            weight_decay=config["training"]["weight_decay"],
+            num_chars=len(config["preprocessing"]["valid_chars"]) + 1,
+            encoder_kernel_size=config["encoder"]["encoder_kernel_size"],
+            num_mels=config["audio"]["num_mels"],
+            char_embedding_dim=config["encoder"]["char_embedding_dim"],
+            prenet_dim=config["decoder"]["prenet_dim"],
+            att_rnn_dim=config["attention"]["att_rnn_dim"],
+            att_dim=config["attention"]["att_dim"],
+            rnn_hidden_dim=config["decoder"]["rnn_hidden_dim"],
+            postnet_dim=config["decoder"]["postnet_dim"],
+            dropout=config["tacotron2"]["dropout"],
+            teacher_forcing=False,
+            **tacotron_args,
+        )
+
+        trainer = Trainer(
+            devices=config["training"]["devices"],
+            accelerator=config["training"]["accelerator"],
+            gradient_clip_val=1.0,
+        )
+
+        out = trainer.predict(tacotron2, dataloaders=test_dataloader)
+
+        i = 0
+        for mel_spectrogram, mel_spectrogram_post, gate, alignment in out:
+            for m in tqdm(range(len(mel_spectrogram_post))):
+                stop_idx = 0
+                g = torch.sigmoid(gate[m])
+
+                for j in range(len(g)):
+                    stop_idx = j
+                    if g[j] <= 0.5:
+                        break
+
+                mel = torch.exp(mel_spectrogram_post[m, :stop_idx])
+                wav = librosa.feature.inverse.mel_to_audio(
+                    mel.numpy().T,
+                    sr=16000,
+                    n_fft=1024,
+                    win_length=1024,
+                    hop_length=256,
+                    power=1,
+                )
+
+                soundfile.write(
+                    path.join(args.dir_out, f"{i}.wav"), wav, samplerate=16000
+                )
+                i += 1
+
+    elif args.mode == "train":
         if use_trainer_checkpoint:
             tacotron2 = Tacotron2(
                 lr=config["training"]["lr"],
@@ -228,6 +353,10 @@ if __name__ == "__main__":
                 **tacotron_args,
             )
         else:
+            if "feature_detector" in tacotron_args:
+                feature_detector = tacotron_args["feature_detector"]
+                del tacotron_args["feature_detector"]
+
             tacotron2 = Tacotron2.load_from_checkpoint(
                 args.checkpoint,
                 lr=config["training"]["lr"],
@@ -255,9 +384,7 @@ if __name__ == "__main__":
             accelerator=config["training"]["accelerator"],
             precision=config["training"]["precision"],
             gradient_clip_val=1.0,
-            max_epochs=config["training"]["max_epochs"]
-            if "max_epochs" in config["training"]
-            else None,
+            max_epochs=config["training"]["max_epochs"],
         )
 
         trainer.fit(
