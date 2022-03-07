@@ -81,12 +81,6 @@ class TTSDataset(Dataset):
         self.features_norm = features_norm
         self.features_log_norm = features_log_norm
 
-        # Preprocessing step - ensure textual data only contains allowed characters
-        allowed_chars_re = re.compile(f"[^{allowed_chars}]+")
-        self.texts = [
-            allowed_chars_re.sub("", unidecode.unidecode(t)).lower() for t in texts
-        ]
-
         self.speaker_ids = speaker_ids
 
         effective_sample_rate = resample_rate if resample_rate else sample_rate
@@ -98,11 +92,29 @@ class TTSDataset(Dataset):
 
         # Preprocessing step - create an ordinal encoder to transform textual data to a
         # tensor of integers
-        self.encoder = OrdinalEncoder()
+        encoder = OrdinalEncoder()
         if end_token is None:
-            self.encoder.fit([[x] for x in list(allowed_chars)])
+            encoder.fit([[x] for x in list(allowed_chars)])
         else:
-            self.encoder.fit([[x] for x in list(allowed_chars) + [end_token]])
+            encoder.fit([[x] for x in list(allowed_chars) + [end_token]])
+
+        # Preprocessing step - ensure textual data only contains allowed characters
+        allowed_chars_re = re.compile(f"[^{allowed_chars}]+")
+
+        self.char_idx = []
+        self.char_idx_len = []
+        for t in texts:
+            t = allowed_chars_re.sub("", unidecode.unidecode(t)).lower()
+            t += end_token if end_token is not None else ""
+            t = encoder.transform([[x] for x in t])
+
+            if end_token:
+                t += 1
+
+            t = torch.LongTensor(t).squeeze(-1)
+
+            self.char_idx.append(t)
+            self.char_idx_len.append(torch.IntTensor([len(t)]))
 
         self.resample = None
         if resample_rate:
@@ -156,19 +168,9 @@ class TTSDataset(Dataset):
         gate_len = torch.IntTensor([len(gate)])
 
         # Text preprocessing ------------------------------------------------------------
-        # Append the end token
-        text = self.texts[i] + (self.end_token if self.end_token is not None else "")
-
         # Encode the text
-        chars_idx = self.encoder.transform([[x] for x in text])
-
-        # Index 0 is for padding, so increment all characters by 1
-        if self.end_token:
-            chars_idx += 1
-
-        # Transform to a LongTensor and remove the extra dimension necessary for the OrdinalEncoder
-        chars_idx = torch.LongTensor(chars_idx).squeeze(-1)
-        chars_idx_len = torch.IntTensor([len(chars_idx)])
+        chars_idx = self.char_idx[i]
+        chars_idx_len = self.char_idx_len[i]
 
         out_data = {
             "chars_idx": chars_idx,
@@ -190,9 +192,10 @@ class TTSDataset(Dataset):
         if self.features_log is not None:
             out_metadata["features_log"] = torch.Tensor([self.features_log[i]])
         if self.features_norm is not None:
-            out_metadata['features_norm'] = torch.Tensor([self.features_norm[i]])
+            out_metadata["features_norm"] = torch.Tensor([self.features_norm[i]])
         if self.features_log_norm is not None:
-            out_metadata['features_log_norm'] = torch.Tensor([self.features_log_norm[i]])
-
+            out_metadata["features_log_norm"] = torch.Tensor(
+                [self.features_log_norm[i]]
+            )
 
         return out_data, out_metadata
