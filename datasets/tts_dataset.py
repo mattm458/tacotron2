@@ -41,6 +41,7 @@ class TTSDataset(Dataset):
         power=1,
         silence=0.1,
         trim=True,
+        feature_override=None,
     ):
         """Create a TTSDataset object.
 
@@ -80,6 +81,8 @@ class TTSDataset(Dataset):
         self.features_log = features_log
         self.features_norm = features_norm
         self.features_log_norm = features_log_norm
+
+        self.feature_override = feature_override
 
         # Preprocessing step - ensure textual data only contains allowed characters
         allowed_chars_re = re.compile(f"[^{allowed_chars}]+")
@@ -190,9 +193,13 @@ class TTSDataset(Dataset):
         if self.features_log is not None:
             out_metadata["features_log"] = torch.Tensor([self.features_log[i]])
         if self.features_norm is not None:
-            out_metadata['features_norm'] = torch.Tensor([self.features_norm[i]])
+            out_metadata["features_norm"] = torch.Tensor([self.features_norm[i]])
         if self.features_log_norm is not None:
-            out_metadata['features_log_norm'] = torch.Tensor([self.features_log_norm[i]])
+            out_metadata["features_log_norm"] = torch.Tensor(
+                [self.features_log_norm[i]]
+            )
 
+        if self.feature_override is not None:
+            out_metadata["features_log_norm"] = torch.Tensor([self.feature_override])
 
         return out_data, out_metadata

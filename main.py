@@ -26,7 +26,9 @@ from model.tacotron2 import Tacotron2
 from utils.args import args
 
 
-def load_dataset(df, config, dataset_dir, base_dir="./", df_train=None):
+def load_dataset(
+    df, config, dataset_dir, base_dir="./", df_train=None, feature_override=None
+):
     args = {"filenames": list(df.wav), "texts": list(df.text_normalized)}
 
     if "model" in config and "extensions" in config["model"]:
@@ -72,7 +74,7 @@ def load_dataset(df, config, dataset_dir, base_dir="./", df_train=None):
                 args["features_log_norm"] = features_log_norm.values.tolist()
                 args["features_norm"] = features_norm.values.tolist()
 
-    return TTSDataset(**args, base_dir=dataset_dir)
+    return TTSDataset(**args, base_dir=dataset_dir, feature_override=feature_override)
 
 
 if __name__ == "__main__":
@@ -184,6 +186,7 @@ if __name__ == "__main__":
                         x.requires_grad = False
 
                     tacotron_args["feature_detector"] = prosody_predictor
+                    use_trainer_checkpoint = False
 
     if args.mode == "say":
         tacotron2 = Tacotron2.load_from_checkpoint(
@@ -226,7 +229,7 @@ if __name__ == "__main__":
         tts_metadata = {
             "chars_idx_len": torch.IntTensor([encoded.shape[1]]),
             "mel_spectrogram_len": torch.IntTensor([800]),
-            "features_log_norm": torch.Tensor([[0, 0, 0, 0, 4, 0, 0]]),
+            "features_log_norm": torch.Tensor([[-2, 0, 0, 0, 0, 0, 0]]),
         }
 
         trainer = Trainer(
@@ -270,8 +273,13 @@ if __name__ == "__main__":
             quoting=csv.QUOTE_NONE,
         )
 
-        train_dataset = load_dataset(df_train, config, dataset_dir)
-        test_dataset = load_dataset(df_test, config, dataset_dir, df_train=df_train)
+        test_dataset = load_dataset(
+            df_test,
+            config,
+            dataset_dir,
+            df_train=df_train,
+            feature_override=args.with_speech_features,
+        )
 
         test_dataloader = TTSDataLoader(
             test_dataset,
