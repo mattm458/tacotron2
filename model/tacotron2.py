@@ -335,7 +335,7 @@ class Tacotron2(pl.LightningModule):
         loss = gate_loss + mel_loss + mel_post_loss
 
         out = {
-            "mel_spectrogram_pred": mel_spectrogram[0].detach(),
+            "mel_spectrogram_pred": mel_spectrogram_post[0].detach(),
             "mel_spectrogram": tts_data["mel_spectrogram"][0].detach(),
             "alignment": alignment[0][
                 : tts_metadata["mel_spectrogram_len"][0],
@@ -347,13 +347,14 @@ class Tacotron2(pl.LightningModule):
         }
 
         if self.prosody_predictor is not None:
-            with torch.no_grad():
-                pred_mel_prosody = self.prosody_predictor(
-                    mel_spectrogram_post, tts_metadata["mel_spectrogram_len"]
-                )
-                mel_prosody = self.prosody_predictor(
-                    tts_data["mel_spectrogram"], tts_metadata["mel_spectrogram_len"]
-                )
+            self.prosody_predictor.requires_grad_(False)
+
+            pred_mel_prosody = self.prosody_predictor(
+                mel_spectrogram_post, tts_metadata["mel_spectrogram_len"]
+            )
+            mel_prosody = self.prosody_predictor(
+                tts_data["mel_spectrogram"], tts_metadata["mel_spectrogram_len"]
+            )
 
             prosody_loss = F.mse_loss(pred_mel_prosody, mel_prosody)
             out["prosody_loss"] = prosody_loss
@@ -384,7 +385,7 @@ class Tacotron2(pl.LightningModule):
         loss = gate_loss + mel_loss + mel_post_loss
 
         out = {
-            "mel_spectrogram_pred": mel_spectrogram[0].detach(),
+            "mel_spectrogram_pred": mel_spectrogram_post[0].detach(),
             "mel_spectrogram": tts_data["mel_spectrogram"][0].detach(),
             "alignment": alignment[0].detach(),
             "gate": tts_data["gate"][0].detach(),
@@ -407,7 +408,7 @@ class Tacotron2(pl.LightningModule):
         out["loss"] = loss
         return out
 
-    def predict_step(self, batch, batch_idx):
+    def predict_step(self, batch, batch_idx, dataloader_idx=None):
         tts_data, tts_metadata = batch
 
         gst = None
