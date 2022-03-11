@@ -78,14 +78,14 @@ test_subparser.add_argument(
     help="The directory to save generated wav files. If it does not exist, it will be created.",
 )
 
-# test_subparser.add_argument(
-#     "--with-speech-features",
-#     type=float,
-#     required=False,
-#     default=None,
-#     nargs="+",
-#     help="Speech features to include in inference",
-# )
+test_subparser.add_argument(
+    "--with-speech-features",
+    type=float,
+    required=False,
+    default=None,
+    nargs="+",
+    help="Speech features to include in inference",
+)
 
 test_subparser.add_argument(
     "--checkpoint",
