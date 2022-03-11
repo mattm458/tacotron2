@@ -27,6 +27,7 @@ class XavierConv1d(nn.Module):
         stride=1,
         padding=None,
         dilation=1,
+        groups=1,
         bias=True,
         nonlinearity="linear",
     ):
@@ -42,6 +43,7 @@ class XavierConv1d(nn.Module):
             stride=stride,
             padding=padding,
             dilation=dilation,
+            groups=groups,
             bias=bias,
         )
 
@@ -65,6 +67,7 @@ class XavierConv2d(nn.Module):
         stride=1,
         padding=None,
         dilation=1,
+        groups=1,
         bias=True,
         nonlinearity="linear",
     ):
@@ -80,6 +83,7 @@ class XavierConv2d(nn.Module):
             stride=stride,
             padding=padding,
             dilation=dilation,
+            groups=groups,
             bias=bias,
         )
 
