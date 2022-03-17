@@ -115,9 +115,6 @@ if __name__ == "__main__":
             ]["embedding_dim"]
         if "features" in config["model"]["extensions"]:
             tacotron_args["speech_features"] = True
-            tacotron_args["speech_features_key"] = config["extensions"]["features"][
-                "features_key"
-            ]
             tacotron_args["speech_feature_dim"] = len(
                 config["extensions"]["features"]["allowed_features"]
             )
