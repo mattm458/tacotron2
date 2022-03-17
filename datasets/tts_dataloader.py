@@ -38,6 +38,7 @@ def TTSDataLoader(
     shuffle=None,
     prefetch_factor=2,
     persistent_workers=False,
+    drop_last=True,
 ):
     """Create a new DataLoader for TTS data.
 
@@ -62,4 +63,5 @@ def TTSDataLoader(
         shuffle=shuffle,
         prefetch_factor=prefetch_factor,
         persistent_workers=persistent_workers,
+        drop_last=drop_last,
     )

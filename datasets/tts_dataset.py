@@ -42,6 +42,8 @@ class TTSDataset(Dataset):
         silence=0.1,
         trim=True,
         feature_override=None,
+        max_mel_len=None,
+        max_text_len=None,
     ):
         """Create a TTSDataset object.
 
@@ -70,6 +72,9 @@ class TTSDataset(Dataset):
 
         if end_token is not None and end_token in allowed_chars:
             raise Exception("end_token cannot be in allowed_chars!")
+
+        self.max_text_len = max_text_len
+        self.max_mel_len = max_mel_len
 
         # Simple assignments
         self.filenames = filenames
@@ -158,6 +163,19 @@ class TTSDataset(Dataset):
         gate[-1] = 0.0
         gate_len = torch.IntTensor([len(gate)])
 
+        if self.max_mel_len is not None:
+            mel_spectrogram = torch.cat(
+                (
+                    mel_spectrogram,
+                    torch.zeros(
+                        self.max_mel_len - mel_spectrogram.shape[0],
+                        mel_spectrogram.shape[1],
+                    ),
+                ),
+                dim=0,
+            )
+            gate = torch.cat((gate, torch.zeros(self.max_mel_len - gate.shape[0], 1)))
+
         # Text preprocessing ------------------------------------------------------------
         # Append the end token
         text = self.texts[i] + (self.end_token if self.end_token is not None else "")
@@ -172,6 +190,17 @@ class TTSDataset(Dataset):
         # Transform to a LongTensor and remove the extra dimension necessary for the OrdinalEncoder
         chars_idx = torch.LongTensor(chars_idx).squeeze(-1)
         chars_idx_len = torch.IntTensor([len(chars_idx)])
+
+        if self.max_text_len is not None:
+            chars_idx = torch.cat(
+                (
+                    chars_idx,
+                    torch.zeros(
+                        self.max_text_len - chars_idx.shape[0], dtype=torch.int
+                    ),
+                ),
+                dim=0,
+            )
 
         out_data = {
             "chars_idx": chars_idx,

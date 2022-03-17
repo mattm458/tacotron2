@@ -74,7 +74,13 @@ def load_dataset(
                 args["features_log_norm"] = features_log_norm.values.tolist()
                 args["features_norm"] = features_norm.values.tolist()
 
-    return TTSDataset(**args, base_dir=dataset_dir, feature_override=feature_override)
+    return TTSDataset(
+        **args,
+        base_dir=dataset_dir,
+        feature_override=feature_override,
+        max_mel_len=None,
+        max_text_len=None,
+    )
 
 
 if __name__ == "__main__":
@@ -101,7 +107,6 @@ if __name__ == "__main__":
         )
 
         train_dataset = load_dataset(df_train, config, dataset_dir)
-        test_dataset = load_dataset(df_test, config, dataset_dir, df_train=df_train)
         val_dataset = load_dataset(df_val, config, dataset_dir, df_train=df_train)
 
         train_dataloader = TTSDataLoader(
@@ -111,14 +116,6 @@ if __name__ == "__main__":
             prefetch_factor=config["data"]["prefetch_factor"],
             pin_memory=True,
             shuffle=True,
-            persistent_workers=True,
-        )
-        test_dataloader = TTSDataLoader(
-            test_dataset,
-            batch_size=config["training"]["batch_size"],
-            num_workers=config["data"]["num_workers"],
-            pin_memory=True,
-            shuffle=False,
             persistent_workers=True,
         )
         val_dataloader = TTSDataLoader(
@@ -393,6 +390,7 @@ if __name__ == "__main__":
             precision=config["training"]["precision"],
             gradient_clip_val=1.0,
             max_epochs=config["training"]["max_epochs"],
+            check_val_every_n_epoch=2,
         )
 
         trainer.fit(
