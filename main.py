@@ -43,36 +43,8 @@ def load_dataset(
             args["speaker_ids"] = encoder.transform(df.speaker_id)
 
         if "features" in config["model"]["extensions"]:
-            features = config["extensions"]["features"]["allowed_features"]
-            if config["extensions"]["features"]["normalize_by"] is None:
-                features_log = np.log(df[features])
-                features_val = df[features]
-
-                args["features_log"] = features_log.values.tolist()
-                args["features"] = features_val.values.tolist()
-
-                if df_train is not None:
-                    features_train = df_train[features]
-                    features_mean = np.mean(features_train)
-                    features_std = np.std(features_train)
-
-                    features_log_train = np.log(df_train[features])
-                    features_log_mean = np.mean(features_log_train)
-                    features_log_std = np.std(features_log_train)
-                else:
-                    features_mean = np.mean(features_val)
-                    features_std = np.std(features_val)
-
-                    features_log_mean = np.mean(features_log)
-                    features_log_std = np.std(features_log)
-
-                features_norm = (features_val - features_mean) / features_std
-
-                features_log_norm = (
-                    features_log - features_log_mean
-                ) / features_log_std
-                args["features_log_norm"] = features_log_norm.values.tolist()
-                args["features_norm"] = features_norm.values.tolist()
+            features = df[config["extensions"]["features"]["allowed_features"]]
+            args["features"] = features.values.tolist()
 
     return TTSDataset(
         **args,

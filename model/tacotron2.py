@@ -48,7 +48,6 @@ class Tacotron2(pl.LightningModule):
         speaker_embeddings=None,
         speaker_embeddings_dim=None,
         speech_features=False,
-        speech_features_key=None,
         speech_feature_dim=None,
         feature_detector=None,
         teacher_forcing=True,
@@ -76,7 +75,6 @@ class Tacotron2(pl.LightningModule):
 
         self.gst = None
         self.speaker_embeddings = None
-        self.speech_features_key = speech_features_key
 
         self.embedding_dim = char_embedding_dim
 
@@ -149,13 +147,12 @@ class Tacotron2(pl.LightningModule):
             self.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
 
-    def __init_hidden(self, encoded_len, batch_size, out_len):
+    def __init_hidden(self, encoded_len, batch_size):
         """Generates initial hidden states, output tensors, and attention vectors.
 
         Args:
             encoded_len -- Length of the input character tensor
             batch_size -- Number of samples per batch
-            out_len -- Number of Mel spectrogram frames to produce
         """
         att_rnn_hidden = (
             torch.zeros(batch_size, self.att_rnn_dim, device=self.device),
@@ -232,7 +229,6 @@ class Tacotron2(pl.LightningModule):
         ) = self.__init_hidden(
             encoded_len=encoded.shape[1],
             batch_size=batch_size,
-            out_len=tts_data["mel_spectrogram"].shape[1],
         )
 
         max_len = 0
@@ -280,7 +276,7 @@ class Tacotron2(pl.LightningModule):
                 encoded=encoded,
                 att_encoded=att_encoded,
                 encoded_mask=encoded_mask,
-                speech_features=tts_metadata[self.speech_features_key],
+                speech_features=tts_metadata["features"],
             )
 
             # Save decoder output
@@ -307,9 +303,12 @@ class Tacotron2(pl.LightningModule):
             >= tts_metadata["mel_spectrogram_len"][:, None]
         )
 
-        mels[mel_mask] = 0.0
-        mels_post[mel_mask] = 0.0
-        gates[mel_mask] = -1000.0
+        mels = mels.swapaxes(1, 2).swapaxes(0, 1)
+        mels_post = mels_post.swapaxes(1, 2).swapaxes(0, 1)
+        gates = gates.swapaxes(1, 2).swapaxes(0, 1)
+        mels = mels.masked_fill(mel_mask, 0.0).swapaxes(0, 1).swapaxes(1, 2)
+        mels_post = mels_post.masked_fill(mel_mask, 0.0).swapaxes(0, 1).swapaxes(1, 2)
+        gates = gates.masked_fill(mel_mask, -1000.0).swapaxes(0, 1).swapaxes(1, 2)
 
         return mels, mels_post, gates, alignments
 
