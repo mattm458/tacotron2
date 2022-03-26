@@ -1,6 +1,6 @@
 from model.modules import XavierConv2d, XavierLinear
 from torch import nn
-from torch import functional as F
+from torch.nn import functional as F
 import torch
 import pytorch_lightning as pl
 import torchaudio
@@ -48,7 +48,7 @@ class ProsodyPredictorV2(nn.Module):
                     mel_spectrogram,
                     torch.zeros(
                         (mel_spectrogram.shape[0], mel_spectrogram.shape[1], 1),
-                        device='cuda',
+                        device="cuda",
                     ),
                 ],
                 2,
@@ -78,6 +78,37 @@ class ProsodyPredictorV2(nn.Module):
 
         return self.emotion_out(output)
 
+features = [
+    "pitch_mean",
+    "pitch_range",
+    "intensity_mean",
+    "jitter",
+    "shimmer",
+    "nhr",
+    "duration",
+]
+
+class ProsodyPredictorLightning(pl.LightningModule):
+    def __init__(self):
+        super().__init__()
+
+        self.prosody_predictor = ProsodyPredictorV2()
+
+        # self.loss = ConcordanceCorrelationCoefficientLoss()
+        self.loss = nn.MSELoss()
+
+        # self.train_pearsons = nn.ModuleList(
+        #     [torchmetrics.PearsonCorrcoef() for x in features]
+        # )
+        # self.val_pearsons = nn.ModuleList(
+        #     [torchmetrics.PearsonCorrcoef() for x in features]
+        # )
+
+    def forward(self, mel_spectrogram, mel_spectrogram_len):
+        out = torch.tanh(self.prosody_predictor(mel_spectrogram, mel_spectrogram_len))
+        print(out.shape)
+        return out
+
     # def configure_optimizers(self):
     #     return torch.optim.Adam(self.parameters(), lr=0.00001)
 
@@ -88,7 +119,11 @@ class ProsodyPredictorV2(nn.Module):
     #         tts_data["mel_spectrogram"], tts_metadata["mel_spectrogram_len"]
     #     )
 
-    #     loss = F.mse_loss(pred_features, tts_metadata["features_log_norm"])
+    #     loss = self.loss(pred_features, tts_metadata["features_log_norm"])
+
+    #     for i, (feature, p) in enumerate(zip(features, self.train_pearsons)):
+    #         p(pred_features[:, i], tts_metadata["features_log_norm"][:, i])
+    #         self.log(f"train_pearson_{feature}_step", p, prog_bar=True)
 
     #     return loss
 
@@ -99,7 +134,11 @@ class ProsodyPredictorV2(nn.Module):
     #         tts_data["mel_spectrogram"], tts_metadata["mel_spectrogram_len"]
     #     )
 
-    #     loss = F.mse_loss(pred_features, tts_metadata["features_log_norm"])
+    #     loss = self.loss(pred_features, tts_metadata["features_log_norm"])
+
+    #     for i, (feature, p) in enumerate(zip(features, self.val_pearsons)):
+    #         p(pred_features[:, i], tts_metadata["features_log_norm"][:, i])
+    #         self.log(f"train_pearson_{feature}_step", p, prog_bar=True)
 
     #     return loss
 
@@ -118,26 +157,16 @@ class ProsodyPredictorV2(nn.Module):
     # def training_step_end(self, outputs):
     #     self.log("training_loss", outputs.detach(), on_step=False, on_epoch=True)
 
+    # def validation_epoch_end(self, outputs):
+    #     for feature, p in zip(features, self.val_pearsons):
+    #         self.log(f"val_pearson_{feature}_epoch", p)
 
-class ProsodyPredictorLightning(pl.LightningModule):
-    def __init__(self):
-        super().__init__()
+    # def training_epoch_end(self, outputs):
+    #     for feature, p in zip(features, self.train_pearsons):
+    #         self.log(f"train_pearson_{feature}_epoch", p)
 
-        self.prosody_predictor = ProsodyPredictorV2()
-        #self.features = features
 
-        # self.loss = ConcordanceCorrelationCoefficientLoss()
-        # self.loss = nn.MSELoss()
 
-        # self.train_pearsons = nn.ModuleList(
-        #     [torchmetrics.PearsonCorrcoef() for x in features]
-        # )
-        # self.val_pearsons = nn.ModuleList(
-        #     [torchmetrics.PearsonCorrcoef() for x in features]
-        # )
-
-    def forward(self, mel_spectrogram, mel_spectrogram_len):
-        return self.prosody_predictor(mel_spectrogram, mel_spectrogram_len)
 
 class ProsodyPredictor(pl.LightningModule):
     def __init__(self, output_dim):
