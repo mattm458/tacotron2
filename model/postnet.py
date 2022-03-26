@@ -1,4 +1,3 @@
-import torch
 from torch import nn
 
 from model.modules import XavierConv1d

@@ -1,5 +1,10 @@
-import csv
 import os
+
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+
+import csv
 from os import path
 
 import librosa
@@ -12,6 +17,7 @@ import torchaudio
 import yaml
 from matplotlib import pyplot as plt
 from pytorch_lightning import Trainer
+from pytorch_lightning.plugins import DDPPlugin
 from scipy.stats import zscore
 from sklearn.preprocessing import OrdinalEncoder
 from torch import nn
@@ -118,7 +124,6 @@ if __name__ == "__main__":
             tacotron_args["speech_feature_dim"] = len(
                 config["extensions"]["features"]["allowed_features"]
             )
-
             if "feature_detector" in config["model"]["extensions"]:
                 if (
                     "feature_extractor_checkpoint" not in args
@@ -136,6 +141,7 @@ if __name__ == "__main__":
                     "feature_extractor_checkpoint" in args
                     and args.feature_extractor_checkpoint is not None
                 ):
+
                     prosody_predictor = prosody_detector.ProsodyPredictorLightning.load_from_checkpoint(
                         args.feature_extractor_checkpoint,
                         # output_dim=tacotron_args["speech_feature_dim"],
@@ -143,16 +149,13 @@ if __name__ == "__main__":
                     use_trainer_checkpoint = False
                     tacotron_args["feature_detector"] = prosody_predictor
                 else:
-                    prosody_predictor = prosody_detector.ProsodyPredictorLightning(
-                        # output_dim=tacotron_args["speech_feature_dim"]
-                    )
+                    prosody_predictor = prosody_detector.ProsodyPredictorLightning()
                     for x in prosody_predictor.prosody_predictor.parameters():
                         x.requires_grad = False
                     for x in prosody_predictor.parameters():
                         x.requires_grad = False
 
                     tacotron_args["feature_detector"] = prosody_predictor
-                    use_trainer_checkpoint = False
 
     if args.mode == "say":
         tacotron2 = Tacotron2.load_from_checkpoint(
@@ -190,12 +193,12 @@ if __name__ == "__main__":
 
         tts_data = {
             "chars_idx": torch.LongTensor(encoded),
-            "mel_spectrogram": torch.zeros((1, 250, 80)),
+            "mel_spectrogram": torch.zeros((1, 900, 80)),
         }
         tts_metadata = {
             "chars_idx_len": torch.IntTensor([encoded.shape[1]]),
-            "mel_spectrogram_len": torch.IntTensor([800]),
-            "features_log_norm": torch.Tensor([[-2, 0, 0, 0, 0, 0, 0]]),
+            "mel_spectrogram_len": torch.IntTensor([900]),
+            "features": torch.Tensor([[0, 0, 0, 0.5, 0, 0, 0]]),
         }
 
         trainer = Trainer(
@@ -211,16 +214,34 @@ if __name__ == "__main__":
                 (tts_data, tts_metadata), 0, 0
             )
 
-        mels_post = torch.exp(mels_post[0])
+        mels = mels.cpu()
+        mels_post = mels_post.cpu()
+        gates = gates.cpu()
+        alignments = alignments.cpu()
+
+        gates = gates[0]
+        gates = torch.sigmoid(gates)
+        end = -1
+        for i in range(gates.shape[0]):
+            if gates[i][0] < 0.5:
+                end = i
+                break
+
+        del mels
+        del gates
+        del alignments
+
+        mels_exp = torch.exp(mels_post[0])[:end]
         wav = librosa.feature.inverse.mel_to_audio(
-            mels_post.numpy().T,
-            sr=16000,
+            mels_exp.numpy().T,
+            sr=22050,
             n_fft=1024,
             win_length=1024,
             hop_length=256,
             power=1,
         )
-        soundfile.write("output.wav", wav, samplerate=16000)
+        soundfile.write("output.wav", wav, samplerate=22050)
+        np.save('output.npy', mels_post[0][:end].numpy())
 
     if args.mode == "test":
         if not path.exists(args.dir_out):
@@ -228,11 +249,6 @@ if __name__ == "__main__":
 
         dataset_dir = args.dataset_dir
 
-        df_train = pd.read_csv(
-            config["data"]["test"],
-            delimiter="|",
-            quoting=csv.QUOTE_NONE,
-        )
         df_test = pd.read_csv(
             config["data"]["test"],
             delimiter="|",
@@ -240,10 +256,9 @@ if __name__ == "__main__":
         )
 
         test_dataset = load_dataset(
-            df_test,
+            df_test.iloc[0:2],
             config,
             dataset_dir,
-            df_train=df_train,
             feature_override=args.with_speech_features,
         )
 
@@ -275,15 +290,29 @@ if __name__ == "__main__":
         )
 
         trainer = Trainer(
-            devices=config["training"]["devices"],
+            devices=[1],  # config["training"]["devices"],
             accelerator=config["training"]["accelerator"],
             gradient_clip_val=1.0,
         )
 
         out = trainer.predict(tacotron2, dataloaders=test_dataloader)
 
-        i = 0
+        out_cpu = []
+
         for mel_spectrogram, mel_spectrogram_post, gate, alignment in out:
+            out_cpu.append((mel_spectrogram_post.cpu(), gate.cpu()))
+            del mel_spectrogram_post
+            del gate
+            del mel_spectrogram
+            del alignment
+
+        out = out_cpu
+        del tacotron2
+
+        torch.cuda.empty_cache()
+
+        i = 0
+        for mel_spectrogram_post, gate in out:
             for m in tqdm(range(len(mel_spectrogram_post))):
                 stop_idx = 0
                 g = torch.sigmoid(gate[m])
@@ -293,18 +322,20 @@ if __name__ == "__main__":
                     if g[j] <= 0.5:
                         break
 
-                mel = torch.exp(mel_spectrogram_post[m, :stop_idx])
+                mel = torch.exp(mel_spectrogram_post[m, :stop_idx, :])
+                print(mel.shape)
+                print(test_dataset[0][0]['mel_spectrogram'].shape[0])
                 wav = librosa.feature.inverse.mel_to_audio(
                     mel.numpy().T,
-                    sr=16000,
+                    sr=22050,
                     n_fft=1024,
                     win_length=1024,
                     hop_length=256,
-                    power=1,
+                    power=1,pad_mode='reflect'
                 )
 
                 soundfile.write(
-                    path.join(args.dir_out, f"{i}.wav"), wav, samplerate=16000
+                    path.join(args.dir_out, f"{i}.wav"), wav, samplerate=22050
                 )
                 i += 1
 
@@ -354,12 +385,14 @@ if __name__ == "__main__":
             tacotron2.prosody_predictor = feature_detector
 
         trainer = Trainer(
-            devices=config["training"]["devices"],
+            gpus=2,  # config["training"]["devices"],
             accelerator=config["training"]["accelerator"],
             precision=config["training"]["precision"],
             gradient_clip_val=1.0,
             max_epochs=config["training"]["max_epochs"],
-            check_val_every_n_epoch=2,
+            check_val_every_n_epoch=5,
+            strategy=DDPPlugin(find_unused_parameters=False),
+            log_every_n_steps=40,
         )
 
         trainer.fit(

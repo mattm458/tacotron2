@@ -356,7 +356,7 @@ class Tacotron2(pl.LightningModule):
             )
 
             prosody_loss = F.mse_loss(pred_mel_prosody, mel_prosody)
-            out["prosody_loss"] = prosody_loss
+            out["prosody_loss"] = prosody_loss.detach()
 
             loss += prosody_loss
 
