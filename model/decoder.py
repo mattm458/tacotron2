@@ -1,5 +1,7 @@
+from typing import Optional, Tuple
+
 import torch
-from torch import nn
+from torch import Tensor, nn
 
 from model.attention import Attention
 from model.modules import XavierLinear
@@ -14,14 +16,14 @@ class Decoder(nn.Module):
 
     def __init__(
         self,
-        num_mels,
-        embedding_dim,
-        prenet_dim,
-        att_rnn_dim,
-        att_dim,
-        rnn_hidden_dim,
-        dropout,
-        speech_feature_dim=None,
+        num_mels: int,
+        embedding_dim: int,
+        prenet_dim: int,
+        att_rnn_dim: int,
+        att_dim: int,
+        rnn_hidden_dim: int,
+        dropout: float,
+        speech_feature_dim: Optional[int] = None,
     ):
         """Create a Decoder object.
 
@@ -68,16 +70,16 @@ class Decoder(nn.Module):
 
     def forward(
         self,
-        prev_mel_prenet,
-        att_rnn_hidden,
+        prev_mel_prenet: Tensor,
+        att_rnn_hidden: Tuple[Tensor, Tensor],
         att_context,
         att_weights,
         att_weights_cum,
-        rnn_hidden,
+        rnn_hidden: Tuple[Tensor, Tensor],
         encoded,
         att_encoded,
         encoded_mask,
-        speech_features=None
+        speech_features:Optional[Tensor]=None,
     ):
         """Perform a decoder forward pass.
 
@@ -115,9 +117,9 @@ class Decoder(nn.Module):
         # Decoder ---------------------------------------------------------------------------------
         # Run attention output through the decoder RNN
         decoder_input = [att_h, att_context]
-        if self.speech_features:
+        if speech_features is not None:
             decoder_input.append(speech_features)
-        
+
         decoder_input = torch.concat(decoder_input, -1)
 
         rnn_h, rnn_c = self.lstm1(decoder_input, rnn_hidden)

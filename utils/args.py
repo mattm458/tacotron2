@@ -11,6 +11,18 @@ parser.add_argument(
 
 subparsers = parser.add_subparsers(required=True, dest="mode")
 
+torchscript_subparser = subparsers.add_parser(
+    "torchscript", help="Export the model to TorchScript"
+)
+
+torchscript_subparser.add_argument(
+    "--filename",
+    type=str,
+    required=False,
+    help="The TorchScript model filename",
+    default="tacotron.pt",
+)
+
 train_subparser = subparsers.add_parser("train", help="Train a Tacotron 2 model")
 
 train_subparser.add_argument(

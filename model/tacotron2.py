@@ -3,17 +3,17 @@ import matplotlib
 matplotlib.use("Agg")
 
 from random import random
+from typing import Optional, Tuple, Dict
 
 import numpy as np
 import pytorch_lightning as pl
 import torch
 from matplotlib import pyplot as plt
-from torch import nn
+from torch import Tensor, nn
 from torch.nn import functional as F
 
 from model.decoder import Decoder
 from model.encoder import Encoder
-from model.gst import GST
 from model.modules import AlwaysDropout, XavierLinear
 from model.postnet import Postnet
 
@@ -38,13 +38,11 @@ class Tacotron2(pl.LightningModule):
         encoder_kernel_size,
         num_mels,
         prenet_dim,
-        att_rnn_dim,
+        att_rnn_dim: int,
         att_dim,
         rnn_hidden_dim,
         postnet_dim,
         dropout,
-        gst=None,
-        gst_dim=None,
         speaker_embeddings=None,
         speaker_embeddings_dim=None,
         speech_features=False,
@@ -72,15 +70,8 @@ class Tacotron2(pl.LightningModule):
         super().__init__()
 
         self.teacher_forcing = teacher_forcing
-
-        self.gst = None
         self.speaker_embeddings = None
-
         self.embedding_dim = char_embedding_dim
-
-        if gst_dim is not None and gst is not None:
-            self.embedding_dim += gst_dim
-            self.gst = gst
 
         if speaker_embeddings is not None and speaker_embeddings_dim is not None:
             self.embedding_dim += speaker_embeddings_dim
@@ -147,7 +138,7 @@ class Tacotron2(pl.LightningModule):
             self.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
 
-    def __init_hidden(self, encoded_len, batch_size):
+    def init_hidden(self, encoded_len: int, batch_size: int, device: torch.device):
         """Generates initial hidden states, output tensors, and attention vectors.
 
         Args:
@@ -155,17 +146,17 @@ class Tacotron2(pl.LightningModule):
             batch_size -- Number of samples per batch
         """
         att_rnn_hidden = (
-            torch.zeros(batch_size, self.att_rnn_dim, device=self.device),
-            torch.zeros(batch_size, self.att_rnn_dim, device=self.device),
+            torch.zeros(batch_size, self.att_rnn_dim, device=device),
+            torch.zeros((batch_size, self.att_rnn_dim), device=device),
         )
 
-        att_context = torch.zeros(batch_size, self.embedding_dim, device=self.device)
-        att_weights = torch.zeros(batch_size, encoded_len, device=self.device)
-        att_weights_cum = torch.zeros(batch_size, encoded_len, device=self.device)
+        att_context = torch.zeros(batch_size, self.embedding_dim, device=device)
+        att_weights = torch.zeros(batch_size, encoded_len, device=device)
+        att_weights_cum = torch.zeros(batch_size, encoded_len, device=device)
 
         rnn_hidden = (
-            torch.zeros(batch_size, self.rnn_hidden_dim, device=self.device),
-            torch.zeros(batch_size, self.rnn_hidden_dim, device=self.device),
+            torch.zeros(batch_size, self.rnn_hidden_dim, device=device),
+            torch.zeros(batch_size, self.rnn_hidden_dim, device=device),
         )
 
         return (
@@ -176,16 +167,14 @@ class Tacotron2(pl.LightningModule):
             rnn_hidden,
         )
 
-    def forward(self, data, gst=None, teacher_forcing=True):
-        if self.gst is not None and gst is None:
-            raise Exception("Tacotron2 is expecting a GST, but none was given")
-        elif self.gst is None and gst is not None:
-            raise Exception(
-                "Tacotron2 was given a GST, but is not configured to use it"
-            )
-
+    def forward(
+        self,
+        data: Tuple[Dict[str, Tensor], Dict[str, Tensor]],
+        teacher_forcing: bool = True,
+    ):
         tts_data, tts_metadata = data
 
+        all_teacher_forcing = 0.0
         if isinstance(teacher_forcing, bool):
             all_teacher_forcing = teacher_forcing
             teacher_forcing = 1.0 if teacher_forcing else 0.0
@@ -195,13 +184,9 @@ class Tacotron2(pl.LightningModule):
         # Encoding --------------------------------------------------------------------------------
         encoded = self.encoder(tts_data["chars_idx"], tts_metadata["chars_idx_len"])
 
-        # if self.gst is not None:
-        #     gst = gst.repeat(1, encoded.shape[1], 1)
-        #     encoded = torch.cat([encoded, gst], dim=2)
-
         # Create a mask for the encoded characters
         encoded_mask = (
-            torch.arange(tts_data["chars_idx"].shape[1], device=self.device)[None, :]
+            torch.arange(tts_data["chars_idx"].shape[1], device=encoded.device)[None, :]
             < tts_metadata["chars_idx_len"][:, None]
         )
 
@@ -226,9 +211,8 @@ class Tacotron2(pl.LightningModule):
             att_weights,
             att_weights_cum,
             rnn_hidden,
-        ) = self.__init_hidden(
-            encoded_len=encoded.shape[1],
-            batch_size=batch_size,
+        ) = self.init_hidden(
+            encoded_len=encoded.shape[1], batch_size=batch_size, device=encoded.device
         )
 
         max_len = 0
@@ -237,7 +221,9 @@ class Tacotron2(pl.LightningModule):
         # padding frame for iteration purposes
         decoder_in = torch.concat(
             [
-                torch.zeros(batch_size, 1, num_mels, device=self.device),
+                torch.zeros(
+                    batch_size, 1, num_mels, device=tts_data["mel_spectrogram"].device
+                ),
                 tts_data["mel_spectrogram"],
             ],
             1,
@@ -252,7 +238,9 @@ class Tacotron2(pl.LightningModule):
 
         # Iterate through all decoder inputs
         for i in range(0, max_len):
-            teacher_force = all_teacher_forcing or random() < teacher_forcing
+            teacher_force = (
+                all_teacher_forcing or torch.rand(1).item() < teacher_forcing
+            )
 
             # Get the frame processed by the prenet
             prev_mel_prenet = self.prenet(prev_mel)
@@ -276,7 +264,9 @@ class Tacotron2(pl.LightningModule):
                 encoded=encoded,
                 att_encoded=att_encoded,
                 encoded_mask=encoded_mask,
-                speech_features=tts_metadata["features"],
+                speech_features=tts_metadata["features"]
+                if self.speech_features
+                else None,
             )
 
             # Save decoder output
@@ -299,7 +289,7 @@ class Tacotron2(pl.LightningModule):
         mels_post = mels + mels_post
 
         mel_mask = (
-            torch.arange(mels_post.shape[1], device=self.device)[None, :]
+            torch.arange(mels_post.shape[1], device=mels_post.device)[None, :]
             >= tts_metadata["mel_spectrogram_len"][:, None]
         )
 
@@ -316,16 +306,10 @@ class Tacotron2(pl.LightningModule):
         self.train_i += 1
         tts_data, tts_metadata = batch
 
-        gst = None
-        if self.gst is not None:
-            gst = self.gst(tts_data.mel_spectrogram)
-            mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
-                batch, gst=gst, teacher_forcing=self.teacher_forcing
-            )
-        else:
-            mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
-                batch, teacher_forcing=self.teacher_forcing
-            )
+        mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
+            batch,
+            teacher_forcing=self.teacher_forcing,
+        )
 
         gate_loss = F.binary_cross_entropy_with_logits(gate, tts_data["gate"])
         mel_loss = F.mse_loss(mel_spectrogram, tts_data["mel_spectrogram"])
@@ -366,16 +350,10 @@ class Tacotron2(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         tts_data, tts_metadata = batch
 
-        gst = None
-        if self.gst is not None:
-            gst = self.gst(tts_data["mel_spectrogram"])
-            mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
-                batch, gst=gst, teacher_forcing=False
-            )
-        else:
-            mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
-                batch, teacher_forcing=False
-            )
+        mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
+            batch,
+            teacher_forcing=self.teacher_forcing,
+        )
 
         gate_loss = F.binary_cross_entropy_with_logits(gate, tts_data["gate"])
         mel_loss = F.mse_loss(mel_spectrogram, tts_data["mel_spectrogram"])
@@ -410,16 +388,9 @@ class Tacotron2(pl.LightningModule):
     def predict_step(self, batch, batch_idx, dataloader_idx=None):
         tts_data, tts_metadata = batch
 
-        gst = None
-        if self.gst is not None:
-            gst = self.gst(tts_data["mel_spectrogram"])
-            mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
-                batch, gst=gst, teacher_forcing=False
-            )
-        else:
-            mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
-                batch, teacher_forcing=False
-            )
+        mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
+            batch, teacher_forcing=False
+        )
 
         return mel_spectrogram, mel_spectrogram_post, gate, alignment
 
