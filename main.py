@@ -1,23 +1,21 @@
 import csv
+import os
 from os import path
 
 import librosa
 import numpy as np
 import pandas as pd
-import pytorch_lightning as pl
 import soundfile
 import torch
 import yaml
 from pytorch_lightning import Trainer
 from sklearn.preprocessing import OrdinalEncoder
-from torch import nn
 from tqdm import tqdm
 
 from datasets.tts_dataloader import TTSDataLoader
 from datasets.tts_dataset import TTSDataset
 from model.hifigan_generator import Generator
 from model.prosodic_features import prosody_detector
-from model.speaker_embeddings import utils as speaker_embedding_utils
 from model.tacotron2 import Tacotron2
 from utils.args import args
 
@@ -28,16 +26,6 @@ def load_dataset(
     args = {"filenames": list(df.wav), "texts": list(df.text_normalized)}
 
     if "model" in config and "extensions" in config["model"]:
-        if "speaker_embeddings" in config["model"]["extensions"]:
-            encoder = speaker_embedding_utils.get_encoder(
-                path.join(
-                    base_dir, config["extensions"]["speaker_embeddings"]["speaker_ids"]
-                ),
-                base_dir,
-            )
-
-            args["speaker_ids"] = encoder.transform(df.speaker_id)
-
         if "features" in config["model"]["extensions"]:
             features = df[config["extensions"]["features"]["allowed_features"]]
             args["features"] = features.values.tolist()
@@ -102,29 +90,11 @@ if __name__ == "__main__":
     prosody_predictor = None
 
     if "model" in config and "extensions" in config["model"]:
-        if "speaker_embeddings" in config["model"]["extensions"]:
-            tacotron_args["speaker_embeddings"] = nn.Embedding(
-                config["extensions"]["speaker_embeddings"]["num_speakers"],
-                config["extensions"]["speaker_embeddings"]["embedding_dim"],
-            )
-            tacotron_args["speaker_embeddings_dim"] = config["extensions"][
-                "speaker_embeddings"
-            ]["embedding_dim"]
         if "features" in config["model"]["extensions"]:
-            if (
-                "gst" in config["extensions"]["features"]
-                and config["extensions"]["features"]["gst"]
-            ):
-                tacotron_args["gst"] = True
-                tacotron_args["gst_dim"] = 256
-                tacotron_args["gst_len"] = len(
-                    config["extensions"]["features"]["allowed_features"]
-                )
-            else:
-                tacotron_args["speech_features"] = True
-                tacotron_args["speech_feature_dim"] = len(
-                    config["extensions"]["features"]["allowed_features"]
-                )
+            tacotron_args["speech_features"] = True
+            tacotron_args["speech_feature_dim"] = len(
+                config["extensions"]["features"]["allowed_features"]
+            )
 
             if "feature_detector" in config["model"]["extensions"]:
                 if (

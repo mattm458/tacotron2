@@ -44,8 +44,6 @@ class Tacotron2(pl.LightningModule):
         rnn_hidden_dim,
         postnet_dim,
         dropout,
-        speaker_embeddings=None,
-        speaker_embeddings_dim=None,
         speech_features=False,
         speech_feature_dim=None,
         feature_detector=None,
@@ -73,12 +71,7 @@ class Tacotron2(pl.LightningModule):
         self.generator: Generator = None
 
         self.teacher_forcing = teacher_forcing
-        self.speaker_embeddings = None
         self.embedding_dim = char_embedding_dim
-
-        if speaker_embeddings is not None and speaker_embeddings_dim is not None:
-            self.embedding_dim += speaker_embeddings_dim
-            self.speaker_embeddings = speaker_embeddings
 
         self.speech_features = speech_features
 
@@ -193,7 +186,6 @@ class Tacotron2(pl.LightningModule):
 
         tts_metadata_features = tts_metadata["features"]
         tts_metadata_chars_idx_len = tts_metadata["chars_idx_len"]
-        # tts_metadata_speaker_id = tts_metadata["speaker_id"]
 
         if force_to_gpu is not None:
             tts_data_mel_spectrogram = tts_data_mel_spectrogram.to(force_to_gpu)
@@ -204,7 +196,6 @@ class Tacotron2(pl.LightningModule):
 
             tts_metadata_features = tts_metadata_features.to(force_to_gpu)
             tts_metadata_chars_idx_len = tts_metadata_chars_idx_len.to(force_to_gpu)
-            # tts_metadata_speaker_id = tts_metadata_speaker_id.cuda()
 
         # Encoding --------------------------------------------------------------------------------
         encoded = self.encoder(tts_data_chars_idx, tts_metadata_chars_idx_len)
@@ -214,13 +205,6 @@ class Tacotron2(pl.LightningModule):
             torch.arange(tts_data_chars_idx.shape[1], device=encoded.device)[None, :]
             < tts_metadata_chars_idx_len[:, None]
         )
-
-        if self.speaker_embeddings is not None:
-            speaker_embeddings = self.speaker_embeddings(
-                tts_metadata_speaker_id
-            ).unsqueeze(1)
-            speaker_embeddings = speaker_embeddings.repeat(1, encoded.shape[1], 1)
-            encoded = torch.cat([encoded, speaker_embeddings], dim=2)
 
         # Transform the encoded characters for attention
         att_encoded = self.att_encoder(encoded)
