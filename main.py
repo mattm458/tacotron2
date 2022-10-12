@@ -1,9 +1,3 @@
-import os
-
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
-os.environ["OMP_NUM_THREADS"] = "1"
-
 import csv
 from os import path
 
@@ -15,14 +9,13 @@ import soundfile
 import torch
 import yaml
 from pytorch_lightning import Trainer
-from pytorch_lightning.plugins import DDPPlugin
-from scipy.stats import zscore
 from sklearn.preprocessing import OrdinalEncoder
 from torch import nn
 from tqdm import tqdm
 
 from datasets.tts_dataloader import TTSDataLoader
 from datasets.tts_dataset import TTSDataset
+from model.hifigan_generator import Generator
 from model.prosodic_features import prosody_detector
 from model.speaker_embeddings import utils as speaker_embedding_utils
 from model.tacotron2 import Tacotron2
@@ -92,6 +85,7 @@ if __name__ == "__main__":
             pin_memory=True,
             shuffle=True,
             persistent_workers=True,
+            drop_last=True,
         )
         val_dataloader = TTSDataLoader(
             val_dataset,
@@ -165,7 +159,20 @@ if __name__ == "__main__":
 
                     tacotron_args["feature_detector"] = prosody_predictor
 
-    if args.mode == "say":
+    if args.mode == "say" or args.mode == "torchscript":
+        generator = None
+
+        if args.hifi_gan_checkpoint is not None:
+            hifi_gan_states = torch.load(
+                args.hifi_gan_checkpoint, map_location="cuda:1"
+            )["state_dict"]
+            hifi_gan_states = dict(
+                [(k[10:], v) for k, v in hifi_gan_states.items() if "generator" in k]
+            )
+
+            generator = Generator()
+            generator.load_state_dict(hifi_gan_states)
+
         tacotron2 = Tacotron2.load_from_checkpoint(
             checkpoint_path=args.checkpoint,
             lr=config["training"]["lr"],
@@ -184,72 +191,83 @@ if __name__ == "__main__":
             **tacotron_args,
         )
 
-        ALLOWED_CHARS = (
-            "!'(),.:;? \\-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-        )
-        end_token = "^"
-        encoder = OrdinalEncoder()
-        encoder.fit([[x] for x in list(ALLOWED_CHARS) + [end_token]])
+        tacotron2.generator = generator
 
-        encoded = (
-            torch.LongTensor(
-                encoder.transform([[x] for x in args.text.lower()] + [[end_token]])
+        if args.mode == "torchscript":
+            tacotron2.cuda("cuda:1").to_torchscript(args.filename)
+        else:
+            ALLOWED_CHARS = (
+                "!'(),.:;? \\-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
             )
-            .squeeze(1)
-            .unsqueeze(0)
-        ) + 1
+            end_token = "^"
+            encoder = OrdinalEncoder()
+            encoder.fit([[x] for x in list(ALLOWED_CHARS) + [end_token]])
 
-        tts_data = {
-            "chars_idx": torch.LongTensor(encoded),
-            "mel_spectrogram": torch.zeros((1, 900, 80)),
-        }
-        tts_metadata = {
-            "chars_idx_len": torch.IntTensor([encoded.shape[1]]),
-            "mel_spectrogram_len": torch.IntTensor([900]),
-            "features": torch.Tensor([[0, 0, 0, 1.0, 0, 0, 0]]),
-        }
+            encoded = (
+                torch.LongTensor(
+                    encoder.transform([[x] for x in args.text.lower()] + [[end_token]])
+                )
+                .squeeze(1)
+                .unsqueeze(0)
+            ) + 1
 
-        trainer = Trainer(
-            devices=config["training"]["devices"],
-            accelerator=config["training"]["accelerator"],
-            precision=config["training"]["precision"],
-            gradient_clip_val=1.0,
-        )
+            tts_data = {
+                "chars_idx": torch.LongTensor(encoded),
+                "mel_spectrogram": torch.zeros((1, 1000, 80)),
+            }
+            tts_metadata = {
+                "chars_idx_len": torch.IntTensor([encoded.shape[1]]),
+                "mel_spectrogram_len": torch.IntTensor([1000]),
+                "features": torch.Tensor([[0.75, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]]),
+            }
 
-        with torch.no_grad():
-            tacotron2.eval()
-            mels, mels_post, gates, alignments = tacotron2.predict_step(
-                (tts_data, tts_metadata), 0, 0
-            )
+            if generator is None:
+                with torch.no_grad():
+                    tacotron2.eval()
+                    mels, mels_post, gates, alignments = tacotron2.predict_step(
+                        (tts_data, tts_metadata), 0, 0
+                    )
 
-        mels = mels.cpu()
-        mels_post = mels_post.cpu()
-        gates = gates.cpu()
-        alignments = alignments.cpu()
+                mels = mels.cpu()
+                mels_post = mels_post.cpu()
+                gates = gates.cpu()
+                alignments = alignments.cpu()
 
-        gates = gates[0]
-        gates = torch.sigmoid(gates)
-        end = -1
-        for i in range(gates.shape[0]):
-            if gates[i][0] < 0.5:
-                end = i
-                break
+                gates = gates[0]
+                gates = torch.sigmoid(gates)
+                end = -1
+                for i in range(gates.shape[0]):
+                    if gates[i][0] < 0.5:
+                        end = i
+                        break
 
-        del mels
-        del gates
-        del alignments
+                del mels
+                del gates
+                del alignments
 
-        mels_exp = torch.exp(mels_post[0])[:end]
-        wav = librosa.feature.inverse.mel_to_audio(
-            mels_exp.numpy().T,
-            sr=22050,
-            n_fft=1024,
-            win_length=1024,
-            hop_length=256,
-            power=1,
-        )
-        soundfile.write("output.wav", wav, samplerate=22050)
-        np.save("output.npy", mels_post[0][:end].numpy())
+                mels_exp = torch.exp(mels_post[0])[:end]
+                wav = librosa.feature.inverse.mel_to_audio(
+                    mels_exp.numpy().T,
+                    sr=22050,
+                    n_fft=1024,
+                    win_length=1024,
+                    hop_length=256,
+                    power=1,
+                    fmin=0,
+                    fmax=8000,
+                )
+                soundfile.write("output.wav", wav, samplerate=22050)
+                np.save("output.npy", mels_post[0][:end].numpy())
+
+            else:
+                with torch.no_grad():
+                    tacotron2.eval()
+                    mels, wavs, gates, alignments = tacotron2.predict_step(
+                        (tts_data, tts_metadata), 0, 0
+                    )
+                soundfile.write(
+                    "output2.wav", wavs[0].detach().numpy(), samplerate=22050
+                )
 
     if args.mode == "test":
         if not path.exists(args.dir_out):
@@ -350,7 +368,7 @@ if __name__ == "__main__":
                 np.save(path.join(args.dir_out, f"{i}"), mel.numpy())
                 i += 1
 
-    elif args.mode == "train" or args.mode == "torchscript":
+    elif args.mode == "train":
         if use_trainer_checkpoint:
             tacotron2 = Tacotron2(
                 lr=config["training"]["lr"],
@@ -388,8 +406,6 @@ if __name__ == "__main__":
                 postnet_dim=config["decoder"]["postnet_dim"],
                 dropout=config["tacotron2"]["dropout"],
                 teacher_forcing=config["training"]["teacher_forcing"],
-                # gst=gst,
-                # gst_dim=256,
                 **tacotron_args,
             )
 
@@ -397,13 +413,12 @@ if __name__ == "__main__":
 
         if args.mode == "train":
             trainer = Trainer(
-                gpus=2,  # config["training"]["devices"],
+                devices=config["training"]["devices"],
                 accelerator=config["training"]["accelerator"],
                 precision=config["training"]["precision"],
                 gradient_clip_val=1.0,
                 max_epochs=config["training"]["max_epochs"],
-                check_val_every_n_epoch=5,
-                strategy=DDPPlugin(find_unused_parameters=False),
+                check_val_every_n_epoch=3,
                 log_every_n_steps=40,
             )
 
@@ -413,5 +428,3 @@ if __name__ == "__main__":
                 val_dataloaders=val_dataloader,
                 ckpt_path=args.checkpoint if use_trainer_checkpoint else None,
             )
-        elif args.mode == "torchscript":
-            tacotron2.to_torchscript(args.filename)

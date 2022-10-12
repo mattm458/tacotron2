@@ -3,7 +3,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 from random import random
-from typing import Optional, Tuple, Dict
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 import pytorch_lightning as pl
@@ -14,6 +14,7 @@ from torch.nn import functional as F
 
 from model.decoder import Decoder
 from model.encoder import Encoder
+from model.hifigan_generator import Generator
 from model.modules import AlwaysDropout, XavierLinear
 from model.postnet import Postnet
 
@@ -68,6 +69,8 @@ class Tacotron2(pl.LightningModule):
             dropout -- the probability of elements to be zeroed out where dropout is applied
         """
         super().__init__()
+
+        self.generator: Generator = None
 
         self.teacher_forcing = teacher_forcing
         self.speaker_embeddings = None
@@ -171,6 +174,9 @@ class Tacotron2(pl.LightningModule):
         self,
         data: Tuple[Dict[str, Tensor], Dict[str, Tensor]],
         teacher_forcing: bool = True,
+        sigmoid_gates: bool = False,
+        save_mel: Optional[str] = None,
+        force_to_gpu: Optional[str] = None,
     ):
         tts_data, tts_metadata = data
 
@@ -181,18 +187,37 @@ class Tacotron2(pl.LightningModule):
         elif isinstance(teacher_forcing, float):
             all_teacher_forcing = teacher_forcing == 1.0
 
+        tts_data_mel_spectrogram = tts_data["mel_spectrogram"]
+        tts_metadata_mel_spectrogram_len = tts_metadata["mel_spectrogram_len"]
+        tts_data_chars_idx = tts_data["chars_idx"]
+
+        tts_metadata_features = tts_metadata["features"]
+        tts_metadata_chars_idx_len = tts_metadata["chars_idx_len"]
+        # tts_metadata_speaker_id = tts_metadata["speaker_id"]
+
+        if force_to_gpu is not None:
+            tts_data_mel_spectrogram = tts_data_mel_spectrogram.to(force_to_gpu)
+            tts_metadata_mel_spectrogram_len = tts_metadata_mel_spectrogram_len.to(
+                force_to_gpu
+            )
+            tts_data_chars_idx = tts_data_chars_idx.to(force_to_gpu)
+
+            tts_metadata_features = tts_metadata_features.to(force_to_gpu)
+            tts_metadata_chars_idx_len = tts_metadata_chars_idx_len.to(force_to_gpu)
+            # tts_metadata_speaker_id = tts_metadata_speaker_id.cuda()
+
         # Encoding --------------------------------------------------------------------------------
-        encoded = self.encoder(tts_data["chars_idx"], tts_metadata["chars_idx_len"])
+        encoded = self.encoder(tts_data_chars_idx, tts_metadata_chars_idx_len)
 
         # Create a mask for the encoded characters
         encoded_mask = (
-            torch.arange(tts_data["chars_idx"].shape[1], device=encoded.device)[None, :]
-            < tts_metadata["chars_idx_len"][:, None]
+            torch.arange(tts_data_chars_idx.shape[1], device=encoded.device)[None, :]
+            < tts_metadata_chars_idx_len[:, None]
         )
 
         if self.speaker_embeddings is not None:
             speaker_embeddings = self.speaker_embeddings(
-                tts_metadata["speaker_id"]
+                tts_metadata_speaker_id
             ).unsqueeze(1)
             speaker_embeddings = speaker_embeddings.repeat(1, encoded.shape[1], 1)
             encoded = torch.cat([encoded, speaker_embeddings], dim=2)
@@ -201,8 +226,8 @@ class Tacotron2(pl.LightningModule):
         att_encoded = self.att_encoder(encoded)
 
         # Decoding --------------------------------------------------------------------------------
-        batch_size = tts_data["mel_spectrogram"].shape[0]
-        num_mels = tts_data["mel_spectrogram"].shape[2]
+        batch_size = tts_data_mel_spectrogram.shape[0]
+        num_mels = tts_data_mel_spectrogram.shape[2]
 
         # Get empty initial states
         (
@@ -222,9 +247,9 @@ class Tacotron2(pl.LightningModule):
         decoder_in = torch.concat(
             [
                 torch.zeros(
-                    batch_size, 1, num_mels, device=tts_data["mel_spectrogram"].device
+                    batch_size, 1, num_mels, device=tts_data_mel_spectrogram.device
                 ),
-                tts_data["mel_spectrogram"],
+                tts_data_mel_spectrogram,
             ],
             1,
         )
@@ -264,9 +289,7 @@ class Tacotron2(pl.LightningModule):
                 encoded=encoded,
                 att_encoded=att_encoded,
                 encoded_mask=encoded_mask,
-                speech_features=tts_metadata["features"]
-                if self.speech_features
-                else None,
+                speech_features=tts_metadata_features if self.speech_features else None,
             )
 
             # Save decoder output
@@ -290,7 +313,7 @@ class Tacotron2(pl.LightningModule):
 
         mel_mask = (
             torch.arange(mels_post.shape[1], device=mels_post.device)[None, :]
-            >= tts_metadata["mel_spectrogram_len"][:, None]
+            >= tts_metadata_mel_spectrogram_len[:, None]
         )
 
         mels = mels.swapaxes(1, 2).swapaxes(0, 1)
@@ -299,6 +322,30 @@ class Tacotron2(pl.LightningModule):
         mels = mels.masked_fill(mel_mask, 0.0).swapaxes(0, 1).swapaxes(1, 2)
         mels_post = mels_post.masked_fill(mel_mask, 0.0).swapaxes(0, 1).swapaxes(1, 2)
         gates = gates.masked_fill(mel_mask, -1000.0).swapaxes(0, 1).swapaxes(1, 2)
+
+        if save_mel is not None:
+            torch.save(mels_post.cpu().detach(), save_mel)
+
+        if sigmoid_gates:
+            gates = torch.sigmoid(gates)
+
+        if self.generator is not None:
+            gates_prob = torch.sigmoid(gates)
+            outputs = []
+            for i in range(batch_size):
+                end = -1
+                for j in range(gates_prob[i].shape[0]):
+                    if gates_prob[i][j][0] < 0.5:
+                        end = j
+                        break
+
+                mel_in = mels_post[i][:end]
+                wav = self.generator(mel_in.unsqueeze(0)).squeeze()
+                outputs.append(wav)
+
+            outputs = nn.utils.rnn.pad_sequence(outputs, batch_first=True)
+
+            return mels, outputs, gates, alignments
 
         return mels, mels_post, gates, alignments
 
@@ -389,7 +436,7 @@ class Tacotron2(pl.LightningModule):
         tts_data, tts_metadata = batch
 
         mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
-            batch, teacher_forcing=False
+            batch, teacher_forcing=False, save_mel="test"
         )
 
         return mel_spectrogram, mel_spectrogram_post, gate, alignment

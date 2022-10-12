@@ -23,6 +23,21 @@ torchscript_subparser.add_argument(
     default="tacotron.pt",
 )
 
+torchscript_subparser.add_argument(
+    "--checkpoint",
+    type=str,
+    required=True,
+    help="The path to a model checkpoint",
+)
+
+torchscript_subparser.add_argument(
+    "--hifi-gan-checkpoint",
+    help="Load a HiFi-GAN checkpoint to use in generating audio",
+    required=False,
+    type=str,
+    default=None,
+)
+
 train_subparser = subparsers.add_parser("train", help="Train a Tacotron 2 model")
 
 train_subparser.add_argument(
@@ -50,6 +65,14 @@ train_subparser.add_argument(
 
 say_subparser = subparsers.add_parser(
     "say", help="Produce a WAV file from a given text string"
+)
+
+say_subparser.add_argument(
+    "--hifi-gan-checkpoint",
+    help="Load a HiFi-GAN checkpoint to use in generating audio",
+    required=False,
+    type=str,
+    default=None,
 )
 
 say_subparser.add_argument(

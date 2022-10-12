@@ -106,7 +106,6 @@ class ProsodyPredictorLightning(pl.LightningModule):
 
     def forward(self, mel_spectrogram, mel_spectrogram_len):
         out = torch.tanh(self.prosody_predictor(mel_spectrogram, mel_spectrogram_len))
-        print(out.shape)
         return out
 
     # def configure_optimizers(self):

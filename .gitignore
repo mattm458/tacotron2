@@ -11,7 +11,11 @@ lightning_logs/*
 lightning_logs_archive/*
 prosody_logs/*
 *.ckpt
+*.ckpt.bak
 *.png
+*.ipynb
+*.pt
+nohup*
 
 # Distribution / packaging
 .Python
