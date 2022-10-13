@@ -497,6 +497,14 @@ class Tacotron2(pl.LightningModule):
             for name, parameter in self.named_parameters():
                 self.logger.experiment.add_histogram(name, parameter, self.global_step)
 
+    def predict_step(self, batch, batch_idx, dataloader_idx=None):
+            tts_data, tts_metadata = batch
+
+            mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
+                batch, teacher_forcing=False, save_mel="test"
+            )
+
+            return mel_spectrogram, mel_spectrogram_post, gate, alignment
 
 def save_figure_to_numpy(fig):
     # save it to a numpy array.
