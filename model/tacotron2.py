@@ -46,7 +46,14 @@ class Tacotron2(pl.LightningModule):
         dropout,
         speech_features=False,
         speech_feature_dim=None,
-        feature_detector=None,
+        prosody_model=None,
+        fine_tune_prosody_model=False,
+        fine_tune_style=False,
+        fine_tune_features=False,
+        generator=None,
+        generator_fine_tune=False,
+        discriminator=None,
+        discriminator_fine_tune=False,
         teacher_forcing=True,
     ):
         """Create a Tacotron2 object.
@@ -75,7 +82,10 @@ class Tacotron2(pl.LightningModule):
 
         self.speech_features = speech_features
 
-        self.prosody_predictor = feature_detector
+        self.prosody_model = prosody_model
+        self.fine_tune_prosody_model = fine_tune_prosody_model
+        self.fine_tune_style = fine_tune_style
+        self.fine_tune_features = fine_tune_features
 
         self.lr = lr
         self.weight_decay = weight_decay
@@ -83,8 +93,6 @@ class Tacotron2(pl.LightningModule):
         self.att_rnn_dim = att_rnn_dim
         self.rnn_hidden_dim = rnn_hidden_dim
         self.char_embedding_dim = char_embedding_dim
-
-        self.train_i = 0
 
         # Tacotron 2 encoder
         self.encoder = Encoder(
@@ -333,51 +341,6 @@ class Tacotron2(pl.LightningModule):
 
         return mels, mels_post, gates, alignments
 
-    def training_step(self, batch, batch_idx):
-        self.train_i += 1
-        tts_data, tts_metadata = batch
-
-        mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
-            batch,
-            teacher_forcing=self.teacher_forcing,
-        )
-
-        gate_loss = F.binary_cross_entropy_with_logits(gate, tts_data["gate"])
-        mel_loss = F.mse_loss(mel_spectrogram, tts_data["mel_spectrogram"])
-        mel_post_loss = F.mse_loss(mel_spectrogram_post, tts_data["mel_spectrogram"])
-
-        loss = gate_loss + mel_loss + mel_post_loss
-
-        out = {
-            "mel_spectrogram_pred": mel_spectrogram_post[0].detach(),
-            "mel_spectrogram": tts_data["mel_spectrogram"][0].detach(),
-            "alignment": alignment[0][
-                : tts_metadata["mel_spectrogram_len"][0],
-                : tts_metadata["chars_idx_len"][0],
-            ].detach(),
-            "gate": tts_data["gate"][0].detach(),
-            "gate_pred": gate[0].detach(),
-            "log": {"loss_train": loss.detach()},
-        }
-
-        if self.prosody_predictor is not None:
-            self.prosody_predictor.requires_grad_(False)
-
-            pred_mel_prosody = self.prosody_predictor(
-                mel_spectrogram_post, tts_metadata["mel_spectrogram_len"]
-            )
-            mel_prosody = self.prosody_predictor(
-                tts_data["mel_spectrogram"], tts_metadata["mel_spectrogram_len"]
-            )
-
-            prosody_loss = F.mse_loss(pred_mel_prosody, mel_prosody)
-            out["prosody_loss"] = prosody_loss.detach()
-
-            loss += prosody_loss
-
-        out["loss"] = loss
-        return out
-
     def validation_step(self, batch, batch_idx):
         tts_data, tts_metadata = batch
 
@@ -391,6 +354,7 @@ class Tacotron2(pl.LightningModule):
         mel_post_loss = F.mse_loss(mel_spectrogram_post, tts_data["mel_spectrogram"])
 
         loss = gate_loss + mel_loss + mel_post_loss
+        self.log("val_mel_loss", loss, on_step=False, on_epoch=True)
 
         out = {
             "mel_spectrogram_pred": mel_spectrogram_post[0].detach(),
@@ -400,53 +364,122 @@ class Tacotron2(pl.LightningModule):
             "gate_pred": gate[0].detach(),
         }
 
-        if self.prosody_predictor is not None:
-            pred_mel_prosody = self.prosody_predictor(
+        if self.prosody_model is not None:
+            if not self.fine_tune_prosody_model:
+                self.prosody_model.requires_grad_(False)
+
+            tts_features, tts_low, tts_medium, tts_high = self.prosody_model(
                 mel_spectrogram_post, tts_metadata["mel_spectrogram_len"]
             )
-            mel_prosody = self.prosody_predictor(
+            features, low, medium, high = self.prosody_model(
                 tts_data["mel_spectrogram"], tts_metadata["mel_spectrogram_len"]
             )
 
-            prosody_loss = F.mse_loss(pred_mel_prosody, mel_prosody)
-            out["prosody_loss"] = prosody_loss
+            if self.fine_tune_style:
+                style_loss = (
+                    F.mse_loss(tts_low, low)
+                    + F.mse_loss(tts_medium, medium)
+                    + F.mse_loss(tts_high, high)
+                )
 
-            loss += prosody_loss
+                self.log("val_style_loss", style_loss, on_step=False, on_epoch=True)
+                loss += style_loss
+
+            if self.fine_tune_features:
+                feature_loss = F.mse_loss(tts_features, features)
+                self.log("val_feature_loss", feature_loss, on_step=False, on_epoch=True)
+
+                loss += feature_loss
+
+        self.log("val_loss", loss, on_step=False, on_epoch=True)
 
         out["loss"] = loss
         return out
 
-    def predict_step(self, batch, batch_idx, dataloader_idx=None):
+    def training_step(self, batch, batch_idx):
         tts_data, tts_metadata = batch
 
         mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
-            batch, teacher_forcing=False, save_mel="test"
+            batch,
+            teacher_forcing=self.teacher_forcing,
         )
 
-        return mel_spectrogram, mel_spectrogram_post, gate, alignment
+        gate_loss = F.binary_cross_entropy_with_logits(gate, tts_data["gate"])
+        mel_loss = F.mse_loss(mel_spectrogram, tts_data["mel_spectrogram"])
+        mel_post_loss = F.mse_loss(mel_spectrogram_post, tts_data["mel_spectrogram"])
+
+        loss = gate_loss + mel_loss + mel_post_loss
+
+        self.log("training_mel_loss", loss.detach(), on_step=True, on_epoch=True)
+
+        out = {
+            "mel_spectrogram_pred": mel_spectrogram_post[0].detach(),
+            "mel_spectrogram": tts_data["mel_spectrogram"][0].detach(),
+            "alignment": alignment[0][
+                : tts_metadata["mel_spectrogram_len"][0],
+                : tts_metadata["chars_idx_len"][0],
+            ].detach(),
+            "gate": tts_data["gate"][0].detach(),
+            "gate_pred": gate[0].detach(),
+            "log": {"loss_train": loss.detach()},
+        }
+
+        if self.prosody_model is not None:
+            if not self.fine_tune_prosody_model:
+                self.prosody_model.requires_grad_(False)
+
+            tts_features, tts_low, tts_medium, tts_high = self.prosody_model(
+                mel_spectrogram_post, tts_metadata["mel_spectrogram_len"]
+            )
+            features, low, medium, high = self.prosody_model(
+                tts_data["mel_spectrogram"], tts_metadata["mel_spectrogram_len"]
+            )
+
+            if self.fine_tune_style:
+                style_loss = (
+                    F.mse_loss(tts_low, low)
+                    + F.mse_loss(tts_medium, medium)
+                    + F.mse_loss(tts_high, high)
+                )
+                self.log(
+                    "train_style_loss", style_loss.detach(), on_step=True, on_epoch=True
+                )
+
+                loss += style_loss
+
+            if self.fine_tune_features:
+                feature_loss = F.mse_loss(tts_features, features)
+                self.log(
+                    "train_feature_loss",
+                    feature_loss.detach(),
+                    on_step=True,
+                    on_epoch=True,
+                )
+
+                loss += feature_loss
+
+        self.log("training_loss", loss.detach(), on_step=True, on_epoch=True)
+
+        out["loss"] = loss
+        return out
 
     def validation_step_end(self, outputs):
-        self.log("val_loss", outputs["loss"], on_step=True)
-
-        if self.prosody_predictor is not None:
-            self.log("val_prosody_loss", outputs["prosody_loss"].detach(), on_step=True)
-
         self.logger.experiment.add_image(
             "val_mel_spectrogram",
             plot_spectrogram_to_numpy(outputs["mel_spectrogram"].cpu().T.numpy()),
-            self.train_i,
+            self.global_step,
             dataformats="HWC",
         )
         self.logger.experiment.add_image(
             "val_mel_spectrogram_predicted",
             plot_spectrogram_to_numpy(outputs["mel_spectrogram_pred"].cpu().T.numpy()),
-            self.train_i,
+            self.global_step,
             dataformats="HWC",
         )
         self.logger.experiment.add_image(
             "val_alignment",
             plot_alignment_to_numpy(outputs["alignment"].cpu().T.numpy()),
-            self.train_i,
+            self.global_step,
             dataformats="HWC",
         )
         self.logger.experiment.add_image(
@@ -455,24 +488,14 @@ class Tacotron2(pl.LightningModule):
                 outputs["gate"].cpu().squeeze().T.numpy(),
                 torch.sigmoid(outputs["gate_pred"]).squeeze().cpu().T.numpy(),
             ),
-            self.train_i,
+            self.global_step,
             dataformats="HWC",
         )
 
     def training_step_end(self, outputs):
-        self.log("training_loss", outputs["loss"].detach(), on_step=True)
-
-        if self.prosody_predictor is not None:
-            self.log(
-                "prosody_loss",
-                outputs["prosody_loss"].detach(),
-                on_step=True,
-                prog_bar=True,
-            )
-
-        if self.train_i % 1000 == 0:
+        if self.global_step % 1000 == 0:
             for name, parameter in self.named_parameters():
-                self.logger.experiment.add_histogram(name, parameter, self.train_i)
+                self.logger.experiment.add_histogram(name, parameter, self.global_step)
 
 
 def save_figure_to_numpy(fig):
