@@ -20,9 +20,7 @@ from model.tacotron2 import Tacotron2
 from utils.args import args
 
 
-def load_dataset(
-    df, config, dataset_dir, base_dir="./", df_train=None, feature_override=None
-):
+def load_dataset(df, config, dataset_dir, feature_override=None):
     args = {"filenames": list(df.wav), "texts": list(df.text_normalized)}
 
     if "model" in config and "extensions" in config["model"]:
@@ -39,31 +37,58 @@ def load_dataset(
     )
 
 
+def get_tacotron_args(config, args):
+    tacotron_args = {
+        "lr": config["training"]["lr"],
+        "weight_decay": config["training"]["weight_decay"],
+        "num_chars": len(config["preprocessing"]["valid_chars"]) + 1,
+        "encoder_kernel_size": config["encoder"]["encoder_kernel_size"],
+        "num_mels": config["audio"]["num_mels"],
+        "char_embedding_dim": config["encoder"]["char_embedding_dim"],
+        "prenet_dim": config["decoder"]["prenet_dim"],
+        "att_rnn_dim": config["attention"]["att_rnn_dim"],
+        "att_dim": config["attention"]["att_dim"],
+        "rnn_hidden_dim": config["decoder"]["rnn_hidden_dim"],
+        "postnet_dim": config["decoder"]["postnet_dim"],
+        "dropout": config["tacotron2"]["dropout"],
+    }
+
+    if "features" in config["model"]["extensions"]:
+        tacotron_args["speech_features"] = True
+        tacotron_args["speech_feature_dim"] = len(
+            config["extensions"]["features"]["allowed_features"]
+        )
+
+    return tacotron_args
+
+
 if __name__ == "__main__":
     with open(args.config, "r") as infile:
         config = yaml.load(infile, Loader=yaml.Loader)
 
+    tacotron_args = get_tacotron_args(config, args)
+
     if args.mode == "train":
         dataset_dir = args.dataset_dir
 
-        df_train = pd.read_csv(
-            config["data"]["train"],
-            delimiter="|",
-            quoting=csv.QUOTE_NONE,
+        train_dataset = load_dataset(
+            df=pd.read_csv(
+                config["data"]["train"],
+                delimiter="|",
+                quoting=csv.QUOTE_NONE,
+            ),
+            config=config,
+            dataset_dir=dataset_dir,
         )
-        df_test = pd.read_csv(
-            config["data"]["test"],
-            delimiter="|",
-            quoting=csv.QUOTE_NONE,
+        val_dataset = load_dataset(
+            df=pd.read_csv(
+                config["data"]["val"],
+                delimiter="|",
+                quoting=csv.QUOTE_NONE,
+            ),
+            config=config,
+            dataset_dir=dataset_dir,
         )
-        df_val = pd.read_csv(
-            config["data"]["val"],
-            delimiter="|",
-            quoting=csv.QUOTE_NONE,
-        )
-
-        train_dataset = load_dataset(df_train, config, dataset_dir)
-        val_dataset = load_dataset(df_val, config, dataset_dir, df_train=df_train)
 
         train_dataloader = TTSDataLoader(
             train_dataset,
@@ -84,52 +109,26 @@ if __name__ == "__main__":
             persistent_workers=True,
         )
 
-    tacotron_args = {}
+        tacotron2 = Tacotron2(teacher_forcing=True, **tacotron_args)
 
-    use_trainer_checkpoint = True
-    prosody_predictor = None
+        trainer = Trainer(
+            devices=config["training"]["devices"],
+            accelerator=config["training"]["accelerator"],
+            precision=config["training"]["precision"],
+            gradient_clip_val=1.0,
+            max_epochs=config["training"]["max_epochs"],
+            check_val_every_n_epoch=3,
+            log_every_n_steps=40,
+        )
 
-    if "model" in config and "extensions" in config["model"]:
-        if "features" in config["model"]["extensions"]:
-            tacotron_args["speech_features"] = True
-            tacotron_args["speech_feature_dim"] = len(
-                config["extensions"]["features"]["allowed_features"]
-            )
+        trainer.fit(
+            tacotron2,
+            train_dataloaders=train_dataloader,
+            val_dataloaders=val_dataloader,
+            ckpt_path=args.checkpoint,
+        )
 
-            if "feature_detector" in config["model"]["extensions"]:
-                if (
-                    "feature_extractor_checkpoint" not in args
-                    or (
-                        "feature_extractor_checkpoint" in args
-                        and args.feature_extractor_checkpoint is None
-                    )
-                ) and args.checkpoint is None:
-                    print(
-                        "Error! Transfer learning of Tacotron model with uninitialized prosody detector!"
-                    )
-                    exit()
-
-                if (
-                    "feature_extractor_checkpoint" in args
-                    and args.feature_extractor_checkpoint is not None
-                ):
-
-                    prosody_predictor = prosody_detector.ProsodyPredictorLightning.load_from_checkpoint(
-                        args.feature_extractor_checkpoint,
-                        # output_dim=tacotron_args["speech_feature_dim"],
-                    )
-                    use_trainer_checkpoint = False
-                    tacotron_args["feature_detector"] = prosody_predictor
-                else:
-                    prosody_predictor = prosody_detector.ProsodyPredictorLightning()
-                    for x in prosody_predictor.prosody_predictor.parameters():
-                        x.requires_grad = False
-                    for x in prosody_predictor.parameters():
-                        x.requires_grad = False
-
-                    tacotron_args["feature_detector"] = prosody_predictor
-
-    if args.mode == "say" or args.mode == "torchscript":
+    elif args.mode == "torchscript":
         generator = None
 
         if args.hifi_gan_checkpoint is not None:
@@ -145,116 +144,120 @@ if __name__ == "__main__":
 
         tacotron2 = Tacotron2.load_from_checkpoint(
             checkpoint_path=args.checkpoint,
-            lr=config["training"]["lr"],
-            weight_decay=config["training"]["weight_decay"],
-            num_chars=len(config["preprocessing"]["valid_chars"]) + 1,
-            encoder_kernel_size=config["encoder"]["encoder_kernel_size"],
-            num_mels=config["audio"]["num_mels"],
-            char_embedding_dim=config["encoder"]["char_embedding_dim"],
-            prenet_dim=config["decoder"]["prenet_dim"],
-            att_rnn_dim=config["attention"]["att_rnn_dim"],
-            att_dim=config["attention"]["att_dim"],
-            rnn_hidden_dim=config["decoder"]["rnn_hidden_dim"],
-            postnet_dim=config["decoder"]["postnet_dim"],
-            dropout=config["tacotron2"]["dropout"],
             teacher_forcing=False,
             **tacotron_args,
         )
 
         tacotron2.generator = generator
 
-        if args.mode == "torchscript":
-            tacotron2.cuda("cuda:1").to_torchscript(args.filename)
-        else:
-            ALLOWED_CHARS = (
-                "!'(),.:;? \\-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        tacotron2.cuda("cuda:1").to_torchscript(args.filename)
+
+    elif args.mode == "say":
+        generator = None
+
+        if args.hifi_gan_checkpoint is not None:
+            hifi_gan_states = torch.load(
+                args.hifi_gan_checkpoint, map_location="cuda:1"
+            )["state_dict"]
+            hifi_gan_states = dict(
+                [(k[10:], v) for k, v in hifi_gan_states.items() if "generator" in k]
             )
-            end_token = "^"
-            encoder = OrdinalEncoder()
-            encoder.fit([[x] for x in list(ALLOWED_CHARS) + [end_token]])
 
-            encoded = (
-                torch.LongTensor(
-                    encoder.transform([[x] for x in args.text.lower()] + [[end_token]])
-                )
-                .squeeze(1)
-                .unsqueeze(0)
-            ) + 1
+            generator = Generator()
+            generator.load_state_dict(hifi_gan_states)
 
-            tts_data = {
-                "chars_idx": torch.LongTensor(encoded),
-                "mel_spectrogram": torch.zeros((1, 1000, 80)),
-            }
-            tts_metadata = {
-                "chars_idx_len": torch.IntTensor([encoded.shape[1]]),
-                "mel_spectrogram_len": torch.IntTensor([1000]),
-                "features": torch.Tensor([[0.75, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]]),
-            }
+        tacotron2 = Tacotron2.load_from_checkpoint(
+            checkpoint_path=args.checkpoint,
+            teacher_forcing=False,
+            **tacotron_args,
+        )
 
-            if generator is None:
-                with torch.no_grad():
-                    tacotron2.eval()
-                    mels, mels_post, gates, alignments = tacotron2.predict_step(
-                        (tts_data, tts_metadata), 0, 0
-                    )
+        tacotron2.generator = generator
 
-                mels = mels.cpu()
-                mels_post = mels_post.cpu()
-                gates = gates.cpu()
-                alignments = alignments.cpu()
+        ALLOWED_CHARS = (
+            "!'(),.:;? \\-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        )
+        end_token = "^"
+        encoder = OrdinalEncoder()
+        encoder.fit([[x] for x in list(ALLOWED_CHARS) + [end_token]])
 
-                gates = gates[0]
-                gates = torch.sigmoid(gates)
-                end = -1
-                for i in range(gates.shape[0]):
-                    if gates[i][0] < 0.5:
-                        end = i
-                        break
+        encoded = (
+            torch.LongTensor(
+                encoder.transform([[x] for x in args.text.lower()] + [[end_token]])
+            )
+            .squeeze(1)
+            .unsqueeze(0)
+        ) + 1
 
-                del mels
-                del gates
-                del alignments
+        tts_data = {
+            "chars_idx": torch.LongTensor(encoded),
+            "mel_spectrogram": torch.zeros((1, 1000, 80)),
+        }
+        tts_metadata = {
+            "chars_idx_len": torch.IntTensor([encoded.shape[1]]),
+            "mel_spectrogram_len": torch.IntTensor([1000]),
+            "features": torch.Tensor([[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]),
+        }
 
-                mels_exp = torch.exp(mels_post[0])[:end]
-                wav = librosa.feature.inverse.mel_to_audio(
-                    mels_exp.numpy().T,
-                    sr=22050,
-                    n_fft=1024,
-                    win_length=1024,
-                    hop_length=256,
-                    power=1,
-                    fmin=0,
-                    fmax=8000,
-                )
-                soundfile.write("output.wav", wav, samplerate=22050)
-                np.save("output.npy", mels_post[0][:end].numpy())
-
-            else:
-                with torch.no_grad():
-                    tacotron2.eval()
-                    mels, wavs, gates, alignments = tacotron2.predict_step(
-                        (tts_data, tts_metadata), 0, 0
-                    )
-                soundfile.write(
-                    "output2.wav", wavs[0].detach().numpy(), samplerate=22050
+        if generator is None:
+            with torch.no_grad():
+                tacotron2.eval()
+                mels, mels_post, gates, alignments = tacotron2.predict_step(
+                    (tts_data, tts_metadata), 0, 0
                 )
 
-    if args.mode == "test":
+            mels = mels.cpu()
+            mels_post = mels_post.cpu()
+            gates = gates.cpu()
+            alignments = alignments.cpu()
+
+            gates = gates[0]
+            gates = torch.sigmoid(gates)
+            end = -1
+            for i in range(gates.shape[0]):
+                if gates[i][0] < 0.5:
+                    end = i
+                    break
+
+            del mels
+            del gates
+            del alignments
+
+            mels_exp = torch.exp(mels_post[0])[:end]
+            wav = librosa.feature.inverse.mel_to_audio(
+                mels_exp.numpy().T,
+                sr=22050,
+                n_fft=1024,
+                win_length=1024,
+                hop_length=256,
+                power=1,
+                fmin=0,
+                fmax=8000,
+            )
+            print("Hello world")
+            soundfile.write("output.wav", wav, samplerate=22050)
+            np.save("output.npy", mels_post[0][:end].numpy())
+
+        else:
+            with torch.no_grad():
+                tacotron2.eval()
+                mels, wavs, gates, alignments = tacotron2.predict_step(
+                    (tts_data, tts_metadata), 0, 0
+                )
+            soundfile.write("output2.wav", wavs[0].detach().numpy(), samplerate=22050)
+
+    elif args.mode == "test":
         if not path.exists(args.dir_out):
             os.mkdir(args.dir_out)
 
-        dataset_dir = args.dataset_dir
-
-        df_test = pd.read_csv(
-            config["data"]["test"],
-            delimiter="|",
-            quoting=csv.QUOTE_NONE,
-        )
-
         test_dataset = load_dataset(
-            df_test,
-            config,
-            dataset_dir,
+            df=pd.read_csv(
+                config["data"]["test"],
+                delimiter="|",
+                quoting=csv.QUOTE_NONE,
+            ),
+            config=config,
+            dataset_dir=args.dataset_dir,
             feature_override=args.with_speech_features,
         )
 
@@ -269,18 +272,6 @@ if __name__ == "__main__":
 
         tacotron2 = Tacotron2.load_from_checkpoint(
             checkpoint_path=args.checkpoint,
-            lr=config["training"]["lr"],
-            weight_decay=config["training"]["weight_decay"],
-            num_chars=len(config["preprocessing"]["valid_chars"]) + 1,
-            encoder_kernel_size=config["encoder"]["encoder_kernel_size"],
-            num_mels=config["audio"]["num_mels"],
-            char_embedding_dim=config["encoder"]["char_embedding_dim"],
-            prenet_dim=config["decoder"]["prenet_dim"],
-            att_rnn_dim=config["attention"]["att_rnn_dim"],
-            att_dim=config["attention"]["att_dim"],
-            rnn_hidden_dim=config["decoder"]["rnn_hidden_dim"],
-            postnet_dim=config["decoder"]["postnet_dim"],
-            dropout=config["tacotron2"]["dropout"],
             teacher_forcing=False,
             **tacotron_args,
         )
@@ -337,64 +328,3 @@ if __name__ == "__main__":
                 )
                 np.save(path.join(args.dir_out, f"{i}"), mel.numpy())
                 i += 1
-
-    elif args.mode == "train":
-        if use_trainer_checkpoint:
-            tacotron2 = Tacotron2(
-                lr=config["training"]["lr"],
-                weight_decay=config["training"]["weight_decay"],
-                num_chars=len(config["preprocessing"]["valid_chars"]) + 1,
-                encoder_kernel_size=config["encoder"]["encoder_kernel_size"],
-                num_mels=config["audio"]["num_mels"],
-                char_embedding_dim=config["encoder"]["char_embedding_dim"],
-                prenet_dim=config["decoder"]["prenet_dim"],
-                att_rnn_dim=config["attention"]["att_rnn_dim"],
-                att_dim=config["attention"]["att_dim"],
-                rnn_hidden_dim=config["decoder"]["rnn_hidden_dim"],
-                postnet_dim=config["decoder"]["postnet_dim"],
-                dropout=config["tacotron2"]["dropout"],
-                teacher_forcing=config["training"]["teacher_forcing"],
-                **tacotron_args,
-            )
-        else:
-            if "feature_detector" in tacotron_args:
-                feature_detector = tacotron_args["feature_detector"]
-                del tacotron_args["feature_detector"]
-
-            tacotron2 = Tacotron2.load_from_checkpoint(
-                args.checkpoint,
-                lr=config["training"]["lr"],
-                weight_decay=config["training"]["weight_decay"],
-                num_chars=len(config["preprocessing"]["valid_chars"]) + 1,
-                encoder_kernel_size=config["encoder"]["encoder_kernel_size"],
-                num_mels=config["audio"]["num_mels"],
-                char_embedding_dim=config["encoder"]["char_embedding_dim"],
-                prenet_dim=config["decoder"]["prenet_dim"],
-                att_rnn_dim=config["attention"]["att_rnn_dim"],
-                att_dim=config["attention"]["att_dim"],
-                rnn_hidden_dim=config["decoder"]["rnn_hidden_dim"],
-                postnet_dim=config["decoder"]["postnet_dim"],
-                dropout=config["tacotron2"]["dropout"],
-                teacher_forcing=config["training"]["teacher_forcing"],
-                **tacotron_args,
-            )
-
-            tacotron2.prosody_predictor = feature_detector
-
-        if args.mode == "train":
-            trainer = Trainer(
-                devices=config["training"]["devices"],
-                accelerator=config["training"]["accelerator"],
-                precision=config["training"]["precision"],
-                gradient_clip_val=1.0,
-                max_epochs=config["training"]["max_epochs"],
-                check_val_every_n_epoch=3,
-                log_every_n_steps=40,
-            )
-
-            trainer.fit(
-                tacotron2,
-                train_dataloaders=train_dataloader,
-                val_dataloaders=val_dataloader,
-                ckpt_path=args.checkpoint if use_trainer_checkpoint else None,
-            )
