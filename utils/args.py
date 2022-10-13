@@ -48,20 +48,62 @@ train_subparser.add_argument(
 )
 
 train_subparser.add_argument(
-    "--feature-extractor-checkpoint",
-    type=str,
-    required=False,
-    default=None,
-    help="Feature extractor checkpoint required for initial fine-tuning training",
-)
-
-train_subparser.add_argument(
     "--checkpoint",
     type=str,
     default=None,
     required=False,
-    help="The path to a model checkpoint",
+    help="Resume training from the given checkpoint",
 )
+
+finetune_parser = subparsers.add_parser("finetune", help="Fine-tune a Tacotron 2 model")
+
+finetune_parser.add_argument(
+    "--dataset-dir",
+    type=str,
+    required=True,
+    help="The base dataset directory",
+)
+
+finetune_parser.add_argument(
+    "--tacotron-checkpoint",
+    type=str,
+    default=None,
+    required=False,
+    help="A trained Tacotron checkpoint to fine-tune",
+)
+
+finetune_parser.add_argument(
+    "--prosody-model-checkpoint",
+    type=str,
+    required=False,
+    default=None,
+    help="Prosody model checkpoint required for fine-tuning",
+)
+
+finetune_parser.add_argument(
+    "--finetune-prosody-model",
+    type=bool,
+    required=False,
+    default=None,
+    help="Fine-tune the supplied prosody model",
+)
+
+finetune_parser.add_argument(
+    "--finetune-tacotron-style",
+    type=bool,
+    required=False,
+    default=None,
+    help="Fine-tune Tacotron's style according to the prosody model.",
+)
+
+finetune_parser.add_argument(
+    "--finetune-tacotron-feature",
+    type=bool,
+    required=False,
+    default=None,
+    help="Fine-tune Tacotron's features according to the prosody model.",
+)
+
 
 say_subparser = subparsers.add_parser(
     "say", help="Produce a WAV file from a given text string"
