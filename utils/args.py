@@ -68,7 +68,7 @@ finetune_parser.add_argument(
     "--tacotron-checkpoint",
     type=str,
     default=None,
-    required=False,
+    required=True,
     help="A trained Tacotron checkpoint to fine-tune",
 )
 
@@ -81,27 +81,29 @@ finetune_parser.add_argument(
 )
 
 finetune_parser.add_argument(
-    "--finetune-prosody-model",
-    type=bool,
-    required=False,
-    default=None,
+    "--fine-tune-prosody-model",
+    action=argparse.BooleanOptionalAction,
     help="Fine-tune the supplied prosody model",
 )
 
 finetune_parser.add_argument(
-    "--finetune-tacotron-style",
-    type=bool,
-    required=False,
-    default=None,
+    "--fine-tune-tacotron-style",
+    action=argparse.BooleanOptionalAction,
     help="Fine-tune Tacotron's style according to the prosody model.",
 )
 
 finetune_parser.add_argument(
-    "--finetune-tacotron-feature",
-    type=bool,
+    "--fine-tune-tacotron-features",
+    action=argparse.BooleanOptionalAction,
+    help="Fine-tune Tacotron's features according to the prosody model.",
+)
+
+finetune_parser.add_argument(
+    "--fine-tune-lr",
+    type=float,
     required=False,
     default=None,
-    help="Fine-tune Tacotron's features according to the prosody model.",
+    help="The learning rate to use for fine-tuning",
 )
 
 

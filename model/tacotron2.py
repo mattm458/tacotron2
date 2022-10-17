@@ -365,9 +365,6 @@ class Tacotron2(pl.LightningModule):
         }
 
         if self.prosody_model is not None:
-            if not self.fine_tune_prosody_model:
-                self.prosody_model.requires_grad_(False)
-
             tts_features, tts_low, tts_medium, tts_high = self.prosody_model(
                 mel_spectrogram_post, tts_metadata["mel_spectrogram_len"]
             )
@@ -383,13 +380,13 @@ class Tacotron2(pl.LightningModule):
                 )
 
                 self.log("val_style_loss", style_loss, on_step=False, on_epoch=True)
-                loss += style_loss
+                loss = loss + style_loss
 
             if self.fine_tune_features:
                 feature_loss = F.mse_loss(tts_features, features)
                 self.log("val_feature_loss", feature_loss, on_step=False, on_epoch=True)
 
-                loss += feature_loss
+                loss = loss + feature_loss
 
         self.log("val_loss", loss, on_step=False, on_epoch=True)
 
@@ -425,9 +422,6 @@ class Tacotron2(pl.LightningModule):
         }
 
         if self.prosody_model is not None:
-            if not self.fine_tune_prosody_model:
-                self.prosody_model.requires_grad_(False)
-
             tts_features, tts_low, tts_medium, tts_high = self.prosody_model(
                 mel_spectrogram_post, tts_metadata["mel_spectrogram_len"]
             )
@@ -445,7 +439,7 @@ class Tacotron2(pl.LightningModule):
                     "train_style_loss", style_loss.detach(), on_step=True, on_epoch=True
                 )
 
-                loss += style_loss
+                loss = loss + style_loss
 
             if self.fine_tune_features:
                 feature_loss = F.mse_loss(tts_features, features)
@@ -456,7 +450,7 @@ class Tacotron2(pl.LightningModule):
                     on_epoch=True,
                 )
 
-                loss += feature_loss
+                loss = loss + feature_loss
 
         self.log("training_loss", loss.detach(), on_step=True, on_epoch=True)
 
@@ -498,13 +492,14 @@ class Tacotron2(pl.LightningModule):
                 self.logger.experiment.add_histogram(name, parameter, self.global_step)
 
     def predict_step(self, batch, batch_idx, dataloader_idx=None):
-            tts_data, tts_metadata = batch
+        tts_data, tts_metadata = batch
 
-            mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
-                batch, teacher_forcing=False, save_mel="test"
-            )
+        mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
+            batch, teacher_forcing=False, save_mel="test"
+        )
 
-            return mel_spectrogram, mel_spectrogram_post, gate, alignment
+        return mel_spectrogram, mel_spectrogram_post, gate, alignment
+
 
 def save_figure_to_numpy(fig):
     # save it to a numpy array.

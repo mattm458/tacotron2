@@ -128,6 +128,86 @@ if __name__ == "__main__":
             ckpt_path=args.checkpoint,
         )
 
+    if args.mode == "finetune":
+        dataset_dir = args.dataset_dir
+
+        train_dataset = load_dataset(
+            df=pd.read_csv(
+                config["data"]["train"],
+                delimiter="|",
+                quoting=csv.QUOTE_NONE,
+            ),
+            config=config,
+            dataset_dir=dataset_dir,
+        )
+        val_dataset = load_dataset(
+            df=pd.read_csv(
+                config["data"]["val"],
+                delimiter="|",
+                quoting=csv.QUOTE_NONE,
+            ),
+            config=config,
+            dataset_dir=dataset_dir,
+        )
+
+        train_dataloader = TTSDataLoader(
+            train_dataset,
+            batch_size=config["training"]["batch_size"],
+            num_workers=config["data"]["num_workers"],
+            prefetch_factor=config["data"]["prefetch_factor"],
+            pin_memory=True,
+            shuffle=True,
+            persistent_workers=True,
+            drop_last=True,
+        )
+        val_dataloader = TTSDataLoader(
+            val_dataset,
+            batch_size=config["training"]["batch_size"],
+            num_workers=config["data"]["num_workers"],
+            pin_memory=True,
+            shuffle=False,
+            persistent_workers=True,
+        )
+
+        prosody_model = prosody_detector.ProsodyPredictorLightning.load_from_checkpoint(
+            args.prosody_model_checkpoint,
+            use_lstm=True,
+            rnn_layers=2,
+            rnn_dropout=0.5,
+        )
+
+        if not args.fine_tune_prosody_model:
+            prosody_model.requires_grad_(False)
+
+        if args.fine_tune_lr is not None:
+            tacotron_args["lr"] = args.fine_tune_lr
+
+        tacotron2 = Tacotron2.load_from_checkpoint(
+            args.tacotron_checkpoint,
+            strict=False,
+            prosody_model=prosody_model.prosody_predictor,
+            fine_tune_prosody_model=args.fine_tune_prosody_model,
+            fine_tune_style=args.fine_tune_tacotron_style,
+            fine_tune_features=args.fine_tune_tacotron_features,
+            teacher_forcing=True,
+            **tacotron_args,
+        )
+
+        trainer = Trainer(
+            devices=config["training"]["devices"],
+            accelerator=config["training"]["accelerator"],
+            precision=config["training"]["precision"],
+            gradient_clip_val=1.0,
+            max_epochs=config["training"]["max_epochs"],
+            check_val_every_n_epoch=3,
+            log_every_n_steps=40,
+        )
+
+        trainer.fit(
+            tacotron2,
+            train_dataloaders=train_dataloader,
+            val_dataloaders=val_dataloader,
+        )
     elif args.mode == "torchscript":
         generator = None
 
@@ -167,7 +247,7 @@ if __name__ == "__main__":
             generator.load_state_dict(hifi_gan_states)
 
         tacotron2 = Tacotron2.load_from_checkpoint(
-            checkpoint_path=args.checkpoint,
+            checkpoint_path=args.checkpoint, strict=False,
             teacher_forcing=False,
             **tacotron_args,
         )
@@ -196,7 +276,7 @@ if __name__ == "__main__":
         tts_metadata = {
             "chars_idx_len": torch.IntTensor([encoded.shape[1]]),
             "mel_spectrogram_len": torch.IntTensor([1000]),
-            "features": torch.Tensor([[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]),
+            "features": torch.Tensor([[-1.0, -1., 0.0, 0.0, 1.0, 0.0, 1.0]]),
         }
 
         if generator is None:

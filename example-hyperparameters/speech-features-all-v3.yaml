@@ -10,7 +10,7 @@ training:
   batch_size: 64
   lr: 0.001
   weight_decay: 0.000001
-  devices: [1]
+  devices: [0]
   precision: 16
   accelerator: gpu
   max_epochs: 500
