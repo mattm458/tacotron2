@@ -1,0 +1,44 @@
+data:
+  train: "data/ljspeech-train-v4.csv"
+  test: "data/ljspeech-test-v4.csv"
+  val: "data/ljspeech-val-v4.csv"
+  num_workers: 16
+  prefetch_factor: 1
+preprocessing:
+  valid_chars: "!'(),.:;? \\-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+training:
+  batch_size: 64
+  lr: 0.001
+  weight_decay: 0.000001
+  devices: [0]
+  precision: 16
+  accelerator: gpu
+  max_epochs: 500
+  teacher_forcing: True
+model:
+  extensions:
+    - features
+audio:
+  num_mels: 80
+encoder:
+  encoder_kernel_size: 5
+  char_embedding_dim: 512
+decoder:
+  prenet_dim: 256
+  rnn_hidden_dim: 1024
+  postnet_dim: 512
+attention:
+  att_rnn_dim: 1024
+  att_dim: 128
+tacotron2:
+  dropout: 0.5
+extensions:
+  features:
+    allowed_features:
+      - pitch_mean_norm_clip
+      - pitch_range_norm_clip
+      - intensity_mean_vcd_norm_clip
+      - jitter_norm_clip
+      - shimmer_norm_clip
+      - nhr_vcd_norm_clip
+      - rate_vcd_norm_clip
