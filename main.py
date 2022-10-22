@@ -21,7 +21,7 @@ from utils.args import args
 
 
 def load_dataset(df, config, dataset_dir, feature_override=None):
-    args = {"filenames": list(df.wav), "texts": list(df.text_normalized)}
+    args = {"filenames": list(df.wav), "texts": list(df.text)}
 
     if "model" in config and "extensions" in config["model"]:
         if "features" in config["model"]["extensions"]:
