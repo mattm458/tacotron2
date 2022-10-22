@@ -236,18 +236,12 @@ class Tacotron2(pl.LightningModule):
 
         # Decoder input: go frame (all ones), the complete Mel spectrogram, and a final 0
         # padding frame for iteration purposes
-        decoder_in = torch.concat(
-            [
-                torch.zeros(
-                    batch_size, 1, num_mels, device=tts_data_mel_spectrogram.device
-                ),
-                tts_data_mel_spectrogram,
-            ],
-            1,
-        )
+        decoder_in = F.pad(tts_data_mel_spectrogram, (0, 0, 1, 0))
         max_len = decoder_in.shape[1] - 1
 
-        prev_mel = decoder_in[:, 0]
+        decoder_in = [x.squeeze(1) for x in torch.split(decoder_in, 1, dim=1)]
+
+        prev_mel = decoder_in[0]
 
         mels = []
         gates = []
@@ -291,7 +285,7 @@ class Tacotron2(pl.LightningModule):
 
             # Prepare for the next iteration
             if teacher_force:
-                prev_mel = decoder_in[:, i + 1]
+                prev_mel = decoder_in[i + 1]
             else:
                 prev_mel = mel_out.detach()
 
