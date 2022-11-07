@@ -81,12 +81,6 @@ finetune_parser.add_argument(
 )
 
 finetune_parser.add_argument(
-    "--fine-tune-prosody-model",
-    action=argparse.BooleanOptionalAction,
-    help="Fine-tune the supplied prosody model",
-)
-
-finetune_parser.add_argument(
     "--fine-tune-tacotron-style",
     action=argparse.BooleanOptionalAction,
     help="Fine-tune Tacotron's style according to the prosody model.",
@@ -96,6 +90,24 @@ finetune_parser.add_argument(
     "--fine-tune-tacotron-features",
     action=argparse.BooleanOptionalAction,
     help="Fine-tune Tacotron's features according to the prosody model.",
+)
+
+finetune_parser.add_argument(
+    "--fine-tune-hifi-gan",
+    action=argparse.BooleanOptionalAction,
+    help="Fine-tune a pretrained HiFi-GAN model on Tacotron output.",
+)
+
+finetune_parser.add_argument(
+    "--fine-tune-hifi-gan-style",
+    action=argparse.BooleanOptionalAction,
+    help="Fine-tune HiFi-GAN's style according to the prosody model.",
+)
+
+finetune_parser.add_argument(
+    "--fine-tune-hifi-gan-features",
+    action=argparse.BooleanOptionalAction,
+    help="Fine-tune HiFi-GAN's features according to the prosody model.",
 )
 
 finetune_parser.add_argument(
