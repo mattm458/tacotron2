@@ -47,14 +47,10 @@ class Tacotron2(pl.LightningModule):
         speech_features=False,
         speech_feature_dim=None,
         prosody_model=None,
-        fine_tune_prosody_model=False,
-        fine_tune_style=False,
-        fine_tune_features=False,
-        generator=None,
-        generator_fine_tune=False,
-        discriminator=None,
-        discriminator_fine_tune=False,
-        teacher_forcing=True,
+        fine_tune_prosody_model: bool = False,
+        fine_tune_style: bool = False,
+        fine_tune_features: bool = False,
+        teacher_forcing: bool = True,
     ):
         """Create a Tacotron2 object.
 
@@ -179,14 +175,7 @@ class Tacotron2(pl.LightningModule):
         save_mel: Optional[str] = None,
         force_to_gpu: Optional[str] = None,
     ):
-        tts_data, tts_metadata = data
-
-        all_teacher_forcing = 0.0
-        if isinstance(teacher_forcing, bool):
-            all_teacher_forcing = teacher_forcing
-            teacher_forcing = 1.0 if teacher_forcing else 0.0
-        elif isinstance(teacher_forcing, float):
-            all_teacher_forcing = teacher_forcing == 1.0
+        tts_data, tts_metadata, _ = data
 
         tts_data_mel_spectrogram = tts_data["mel_spectrogram"]
         tts_metadata_mel_spectrogram_len = tts_metadata["mel_spectrogram_len"]
@@ -239,6 +228,11 @@ class Tacotron2(pl.LightningModule):
         decoder_in = F.pad(tts_data_mel_spectrogram, (0, 0, 1, 0))
         max_len = decoder_in.shape[1] - 1
 
+        # If we're teacher forcing, we can save time by applying the prenet to the entire
+        # decoder in tensor at once, rather than doing it step-by-step in the decoder loop
+        if teacher_forcing:
+            decoder_in = self.prenet(decoder_in)
+
         decoder_in = [x.squeeze(1) for x in torch.split(decoder_in, 1, dim=1)]
 
         prev_mel = decoder_in[0]
@@ -249,12 +243,12 @@ class Tacotron2(pl.LightningModule):
 
         # Iterate through all decoder inputs
         for i in range(0, max_len):
-            teacher_force = (
-                all_teacher_forcing or torch.rand(1).item() < teacher_forcing
-            )
-
-            # Get the frame processed by the prenet
-            prev_mel_prenet = self.prenet(prev_mel)
+            # If we are generating Mel spectrogram frames autoregressively, apply the prenet to
+            # incoming Mel spectrogram frames,
+            if teacher_forcing:
+                prev_mel_prenet = prev_mel
+            else:
+                prev_mel_prenet = self.prenet(prev_mel)
 
             # Run the decoder
             (
@@ -284,7 +278,7 @@ class Tacotron2(pl.LightningModule):
             alignments.append(att_weights)
 
             # Prepare for the next iteration
-            if teacher_force:
+            if teacher_forcing:
                 prev_mel = decoder_in[i + 1]
             else:
                 prev_mel = mel_out.detach()
@@ -336,7 +330,7 @@ class Tacotron2(pl.LightningModule):
         return mels, mels_post, gates, alignments
 
     def validation_step(self, batch, batch_idx):
-        tts_data, tts_metadata = batch
+        tts_data, tts_metadata, _ = batch
 
         mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
             batch,
@@ -388,7 +382,7 @@ class Tacotron2(pl.LightningModule):
         return out
 
     def training_step(self, batch, batch_idx):
-        tts_data, tts_metadata = batch
+        tts_data, tts_metadata, _ = batch
 
         mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
             batch,
@@ -486,7 +480,7 @@ class Tacotron2(pl.LightningModule):
                 self.logger.experiment.add_histogram(name, parameter, self.global_step)
 
     def predict_step(self, batch, batch_idx, dataloader_idx=None):
-        tts_data, tts_metadata = batch
+        tts_data, tts_metadata, _ = batch
 
         mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
             batch, teacher_forcing=False, save_mel="test"
