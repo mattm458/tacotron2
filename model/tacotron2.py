@@ -14,7 +14,6 @@ from torch.nn import functional as F
 
 from model.decoder import Decoder
 from model.encoder import Encoder
-from model.hifigan_generator import Generator
 from model.modules import AlwaysDropout, XavierLinear
 from model.postnet import Postnet
 
@@ -70,8 +69,6 @@ class Tacotron2(pl.LightningModule):
             dropout -- the probability of elements to be zeroed out where dropout is applied
         """
         super().__init__()
-
-        self.generator: Generator = None
 
         self.teacher_forcing = teacher_forcing
         self.embedding_dim = char_embedding_dim
@@ -308,24 +305,6 @@ class Tacotron2(pl.LightningModule):
 
         if sigmoid_gates:
             gates = torch.sigmoid(gates)
-
-        if self.generator is not None:
-            gates_prob = torch.sigmoid(gates)
-            outputs = []
-            for i in range(batch_size):
-                end = -1
-                for j in range(gates_prob[i].shape[0]):
-                    if gates_prob[i][j][0] < 0.5:
-                        end = j
-                        break
-
-                mel_in = mels_post[i][:end]
-                wav = self.generator(mel_in.unsqueeze(0)).squeeze()
-                outputs.append(wav)
-
-            outputs = nn.utils.rnn.pad_sequence(outputs, batch_first=True)
-
-            return mels, outputs, gates, alignments
 
         return mels, mels_post, gates, alignments
 
