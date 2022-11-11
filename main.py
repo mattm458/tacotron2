@@ -1,6 +1,5 @@
 import csv
 import os
-from copy import deepcopy
 from os import path
 
 import librosa
@@ -21,7 +20,6 @@ from model.tacotron2 import Tacotron2
 
 
 def load_dataset(df, config, dataset_dir, feature_override=None, **args):
-    print(args)
     args["filenames"] = list(df.wav)
     args["texts"] = list(df.text)
 
