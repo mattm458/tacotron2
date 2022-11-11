@@ -46,6 +46,10 @@ class Tacotron2(pl.LightningModule):
         speech_features=False,
         speech_feature_dim=None,
         prosody_model=None,
+        hifi_gan_generator=None,
+        hifi_gan_mpd=None,
+        hifi_gan_msd=None,
+        hifi_gan_spectrogram=None,
         fine_tune_prosody_model: bool = False,
         fine_tune_style: bool = False,
         fine_tune_features: bool = False,
@@ -75,7 +79,12 @@ class Tacotron2(pl.LightningModule):
 
         self.speech_features = speech_features
 
+        # Conditioning
         self.prosody_model = prosody_model
+        self.hifi_gan_generator = hifi_gan_generator
+        self.hifi_gan_mpd = hifi_gan_mpd
+        self.hifi_gan_msd = hifi_gan_msd
+        self.hifi_gan_spectrogram = hifi_gan_spectrogram
         self.fine_tune_prosody_model = fine_tune_prosody_model
         self.fine_tune_style = fine_tune_style
         self.fine_tune_features = fine_tune_features
@@ -374,7 +383,14 @@ class Tacotron2(pl.LightningModule):
 
         loss = gate_loss + mel_loss + mel_post_loss
 
-        self.log("training_mel_loss", loss.detach(), on_step=True, on_epoch=True)
+        self.log("training_gate_loss", gate_loss.detach(), on_step=True, on_epoch=True)
+        self.log("training_mel_loss", mel_loss.detach(), on_step=True, on_epoch=True)
+        self.log(
+            "training_mel_post_loss",
+            mel_post_loss.detach(),
+            on_step=True,
+            on_epoch=True,
+        )
 
         out = {
             "mel_spectrogram_pred": mel_spectrogram_post[0].detach(),
@@ -385,39 +401,98 @@ class Tacotron2(pl.LightningModule):
             ].detach(),
             "gate": tts_data["gate"][0].detach(),
             "gate_pred": gate[0].detach(),
-            "log": {"loss_train": loss.detach()},
         }
 
-        if self.prosody_model is not None:
-            tts_features, tts_low, tts_medium, tts_high = self.prosody_model(
-                mel_spectrogram_post, tts_metadata["mel_spectrogram_len"]
+        if self.hifi_gan_generator is not None:
+            # WIP HiFi-GAN fine-tuning
+            if "y_wav" not in tts_data:
+                raise Exception("Ground-truth waveform data is not in TTS data!")
+            if "y_wav_len" not in tts_metadata:
+                raise Exception("Waveform lengths unavailable in TTS metadata!")
+
+            # Compute the output waveform
+            wav_pred = self.hifi_gan_generator(mel_spectrogram_post)
+
+            wav_pred_len = wav_pred.shape[1]
+            wav_y_len = tts_data["y_wav"].shape[1]
+
+            diff = wav_pred_len - wav_y_len
+            start = math.floor(diff / 2)
+            end = wav_pred_len - math.ceil(diff / 2)
+
+            wav_pred = wav_pred[:, start:end]
+
+            if wav_pred.shape != tts_data["y_wav"].shape:
+                print(wav_pred.shape, tts_data["y_wav"].shape)
+                raise Exception("oh no")
+
+            pred_mel_spectrogram = self.hifi_gan_spectrogram(wav_pred).swapaxes(1, 2)
+            y_mel_spectrogram = self.hifi_gan_spectrogram(tts_data["y_wav"]).swapaxes(
+                1, 2
             )
-            features, low, medium, high = self.prosody_model(
-                tts_data["mel_spectrogram"], tts_metadata["mel_spectrogram_len"]
+
+            mel_spectrogram_mask = torch.arange(
+                pred_mel_spectrogram.shape[1], device=pred_mel_spectrogram.device
+            ).unsqueeze(0)
+            mel_spectrogram_mask = mel_spectrogram_mask.repeat(
+                pred_mel_spectrogram.shape[0], 1
+            )
+            mel_spectrogram_mask = mel_spectrogram_mask > tts_metadata[
+                "mel_spectrogram_len"
+            ].unsqueeze(1)
+            mel_spectrogram_mask = mel_spectrogram_mask
+
+            pred_mel_spectrogram = pred_mel_spectrogram.masked_fill(
+                mel_spectrogram_mask.unsqueeze(-1), 0.0
+            )
+            y_mel_spectrogram = y_mel_spectrogram.masked_fill(
+                mel_spectrogram_mask.unsqueeze(-1), 0.0
             )
 
-            if self.fine_tune_style:
-                style_loss = (
-                    F.mse_loss(tts_low, low)
-                    + F.mse_loss(tts_medium, medium)
-                    + F.mse_loss(tts_high, high)
+            # Mel spectrogram loss
+            loss_mel = (
+                F.l1_loss(
+                    y_mel_spectrogram[~mel_spectrogram_mask],
+                    pred_mel_spectrogram[~mel_spectrogram_mask],
                 )
-                self.log(
-                    "train_style_loss", style_loss.detach(), on_step=True, on_epoch=True
-                )
+                * 20
+            )
+            tacotron_loss = tacotron_loss + loss_mel
 
-                loss = loss + style_loss
+            self.log(
+                "training_mel_loss", loss_mel.detach(), on_step=True, on_epoch=True
+            )
 
-            if self.fine_tune_features:
-                feature_loss = F.mse_loss(tts_features, features)
-                self.log(
-                    "train_feature_loss",
-                    feature_loss.detach(),
-                    on_step=True,
-                    on_epoch=True,
-                )
+            (
+                _,
+                output_features_low,
+                output_features_medium,
+                output_features_high,
+            ) = self.prosody_model(
+                torch.log(torch.clamp(pred_mel_spectrogram, min=1e-5)),
+                tts_metadata["mel_spectrogram_len"],
+            )
+            (
+                _,
+                ground_truth_features_low,
+                ground_truth_features_medium,
+                ground_truth_features_high,
+            ) = self.prosody_model(
+                torch.log(torch.clamp(y_mel_spectrogram, min=1e-5)),
+                tts_metadata["mel_spectrogram_len"],
+            )
 
-                loss = loss + feature_loss
+            style_loss = (
+                F.mse_loss(output_features_low, ground_truth_features_low)
+                + F.mse_loss(output_features_medium, ground_truth_features_medium)
+                + F.mse_loss(output_features_high, ground_truth_features_high)
+            ) * 4
+
+            self.log(
+                "training_style_loss", style_loss.detach(), on_step=True, on_epoch=True
+            )
+
+            tacotron_loss = tacotron_loss + style_loss
 
         self.log("training_loss", loss.detach(), on_step=True, on_epoch=True)
 
