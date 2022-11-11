@@ -6,7 +6,8 @@ import torch
 import torchaudio
 import unidecode
 from sklearn.preprocessing import OrdinalEncoder
-from speech_utils.audio.transforms import TacotronMelSpectrogram, pad_wav_multiple
+from speech_utils.audio.transforms import (TacotronMelSpectrogram,
+                                           pad_wav_multiple)
 from torch.nn import functional as F
 from torch.utils.data import Dataset
 
@@ -63,6 +64,7 @@ class TTSDataset(Dataset):
         feature_override=None,
         expand_abbreviations=False,
         include_wav=False,
+        include_text=False,
     ):
         """Create a TTSDataset object.
 
@@ -85,6 +87,7 @@ class TTSDataset(Dataset):
             raise Exception("end_token cannot be in allowed_chars!")
 
         self.include_wav = include_wav
+        self.include_text = include_text
 
         # Simple assignments
         self.filenames = filenames
@@ -173,7 +176,9 @@ class TTSDataset(Dataset):
             out_metadata["wav_len"] = torch.IntTensor([len(wav)])
             out_metadata["wav_pad_len"] = torch.IntTensor([wav_pad_len])
 
-        out_extra = {"text": text}
+        out_extra = {}
+        if self.include_text:
+            out_extra["text"] = text
 
         if self.speaker_ids is not None:
             out_metadata["speaker_id"] = torch.IntTensor([self.speaker_ids[i]])
