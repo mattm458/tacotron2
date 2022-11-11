@@ -37,13 +37,7 @@ def load_dataset(df, config, dataset_dir, feature_override=None, **args):
             features = df[config["extensions"]["features"]["allowed_features"]]
             args["features"] = features.values.tolist()
 
-    return TTSDataset(
-        **args,
-        base_dir=dataset_dir,
-        feature_override=feature_override,
-        max_mel_len=None,
-        max_text_len=None,
-    )
+    return TTSDataset(**args, base_dir=dataset_dir, feature_override=feature_override)
 
 
 def get_tacotron_args(config):
