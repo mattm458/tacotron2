@@ -41,7 +41,7 @@ class Encoder(nn.Module):
                     nonlinearity="relu",
                 ),
                 nn.BatchNorm1d(embedding_dim),
-                nn.ReLU(),
+                nn.ELU(),
                 nn.Dropout(dropout),
             ]
             convolutions.extend(conv_layer)
