@@ -1,5 +1,6 @@
 import csv
 import os
+from copy import deepcopy
 from os import path
 
 import librosa
@@ -8,20 +9,30 @@ import pandas as pd
 import soundfile
 import torch
 import yaml
+from hifi_gan.model.generator import Generator
 from pytorch_lightning import Trainer
 from sklearn.preprocessing import OrdinalEncoder
 from tqdm import tqdm
 
 from datasets.tts_dataloader import TTSDataLoader
 from datasets.tts_dataset import TTSDataset
-from model.hifigan_generator import Generator
 from model.prosodic_features import prosody_detector
 from model.tacotron2 import Tacotron2
-from utils.args import args
 
 
-def load_dataset(df, config, dataset_dir, feature_override=None):
-    args = {"filenames": list(df.wav), "texts": list(df.text)}
+def load_dataset(df, config, dataset_dir, feature_override=None, **args):
+    print(args)
+    args["filenames"] = list(df.wav)
+    args["texts"] = list(df.text)
+
+    if "expand_abbreviations" in config["preprocessing"]:
+        args["expand_abbreviations"] = config["preprocessing"]["expand_abbreviations"]
+
+    if "end_token" in config["preprocessing"]:
+        args["end_token"] = config["preprocessing"]["end_token"]
+
+    if "silence" in config["preprocessing"]:
+        args["silence"] = config["preprocessing"]["silence"]
 
     if "model" in config and "extensions" in config["model"]:
         if "features" in config["model"]["extensions"]:
@@ -37,11 +48,17 @@ def load_dataset(df, config, dataset_dir, feature_override=None):
     )
 
 
-def get_tacotron_args(config, args):
+def get_tacotron_args(config):
+    num_chars = len(config["preprocessing"]["valid_chars"])
+    if "end_token" in config["preprocessing"] and config["preprocessing"]["end_token"]:
+        num_chars += 1
+    elif "end_token" not in config["preprocessing"]:
+        num_chars += 1
+
     tacotron_args = {
         "lr": config["training"]["lr"],
         "weight_decay": config["training"]["weight_decay"],
-        "num_chars": len(config["preprocessing"]["valid_chars"]) + 1,
+        "num_chars": num_chars,
         "encoder_kernel_size": config["encoder"]["encoder_kernel_size"],
         "num_mels": config["audio"]["num_mels"],
         "char_embedding_dim": config["encoder"]["char_embedding_dim"],
@@ -63,10 +80,12 @@ def get_tacotron_args(config, args):
 
 
 if __name__ == "__main__":
+    from utils.args import args
+
     with open(args.config, "r") as infile:
         config = yaml.load(infile, Loader=yaml.Loader)
 
-    tacotron_args = get_tacotron_args(config, args)
+    tacotron_args = get_tacotron_args(config)
 
     if args.mode == "train":
         dataset_dir = args.dataset_dir
@@ -173,7 +192,7 @@ if __name__ == "__main__":
             args.prosody_model_checkpoint,
             use_lstm=True,
             rnn_layers=2,
-            rnn_dropout=0.5,
+            rnn_dropout=0.0,
         )
 
         if not args.fine_tune_prosody_model:
@@ -244,10 +263,12 @@ if __name__ == "__main__":
             )
 
             generator = Generator()
+            generator.weight_norm()
             generator.load_state_dict(hifi_gan_states)
 
         tacotron2 = Tacotron2.load_from_checkpoint(
-            checkpoint_path=args.checkpoint, strict=False,
+            checkpoint_path=args.checkpoint,
+            strict=False,
             teacher_forcing=False,
             **tacotron_args,
         )
@@ -259,11 +280,11 @@ if __name__ == "__main__":
         )
         end_token = "^"
         encoder = OrdinalEncoder()
-        encoder.fit([[x] for x in list(ALLOWED_CHARS) + [end_token]])
+        encoder.fit([[x] for x in list(ALLOWED_CHARS)])  # + [end_token]])
 
         encoded = (
             torch.LongTensor(
-                encoder.transform([[x] for x in args.text.lower()] + [[end_token]])
+                encoder.transform([[x] for x in args.text.lower()])  # + [[end_token]])
             )
             .squeeze(1)
             .unsqueeze(0)
@@ -276,7 +297,7 @@ if __name__ == "__main__":
         tts_metadata = {
             "chars_idx_len": torch.IntTensor([encoded.shape[1]]),
             "mel_spectrogram_len": torch.IntTensor([1000]),
-            "features": torch.Tensor([[-1.0, -1., 0.0, 0.0, 1.0, 0.0, 1.0]]),
+            "features": torch.Tensor([[0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]]),
         }
 
         if generator is None:

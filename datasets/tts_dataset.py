@@ -6,10 +6,44 @@ import torch
 import torchaudio
 import unidecode
 from sklearn.preprocessing import OrdinalEncoder
+from speech_utils.audio.transforms import TacotronMelSpectrogram, pad_wav_multiple
 from torch.nn import functional as F
 from torch.utils.data import Dataset
 
 ALLOWED_CHARS = "!'(),.:;? \\-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+_abbreviations = [
+    (re.compile("\\b%s\\." % x[0], re.IGNORECASE), x[1])
+    for x in [
+        ("mrs", "misess"),
+        ("mr", "mister"),
+        ("dr", "doctor"),
+        ("st", "saint"),
+        ("co", "company"),
+        ("jr", "junior"),
+        ("maj", "major"),
+        ("gen", "general"),
+        ("drs", "doctors"),
+        ("rev", "reverend"),
+        ("lt", "lieutenant"),
+        ("hon", "honorable"),
+        ("sgt", "sergeant"),
+        ("capt", "captain"),
+        ("esq", "esquire"),
+        ("ltd", "limited"),
+        ("col", "colonel"),
+        ("ft", "fort"),
+    ]
+]
+
+
+def _expand_abbreviations(text):
+    for regex, replacement in _abbreviations:
+        text = re.sub(regex, replacement, text)
+    return text
+
+
+__SAMPLE_RATE = 22050
 
 
 class TTSDataset(Dataset):
@@ -25,19 +59,10 @@ class TTSDataset(Dataset):
         features=None,
         allowed_chars=ALLOWED_CHARS,
         end_token="^",
-        sample_rate=22050,
-        n_fft=1024,
-        win_length=1024,
-        hop_length=256,
-        f_min=0.0,
-        f_max=8000.0,
-        n_mels=80,
-        power=1,
-        silence=0.1,
         trim=True,
         feature_override=None,
-        max_mel_len=None,
-        max_text_len=None,
+        expand_abbreviations=False,
+        include_wav=False,
     ):
         """Create a TTSDataset object.
 
@@ -49,26 +74,17 @@ class TTSDataset(Dataset):
             end_token -- a special character appended to the end of every transcript.
                         If None, no token will be appended (default "^")
             sample_rate -- the sample rate of the wav files (default 22050)
-            n_fft -- size of FFT for mel spectrogram (default 1024)
-            win_length -- window size (default 1024)
-            hop_length -- length of hop between STFT windows (default 256)
-            f_min -- minimum frequencey (default 0.0)
-            f_max -- maximum frequency (default 8000.0)
-            n_mels -- number of Mel filterbanks (default 80)
-            power -- exponent for the magnitude spectrogram (must be >0) i.e., 1 for energy, 2 for power, etc.
-                    If None, then the complex spectrum is returned instead (default 1)
             silence -- seconds of silence to append to the end of the audio.
                     If None, no silence is appended (default None)
             trim -- If True, audio data will be trimmed to remove silence from the beginning and
                     end. Defaults to True.
         """
-        super(TTSDataset).__init__()
+        super().__init__()
 
         if end_token is not None and end_token in allowed_chars:
             raise Exception("end_token cannot be in allowed_chars!")
 
-        self.max_text_len = max_text_len
-        self.max_mel_len = max_mel_len
+        self.include_wav = include_wav
 
         # Simple assignments
         self.filenames = filenames
@@ -84,13 +100,10 @@ class TTSDataset(Dataset):
         self.texts = [
             allowed_chars_re.sub("", unidecode.unidecode(t)).lower() for t in texts
         ]
+        if expand_abbreviations:
+            self.texts = [_expand_abbreviations(x) for x in self.texts]
 
         self.speaker_ids = speaker_ids
-
-        # Preprocessing step - calculate the length of the silence vector
-        self.silence_len = (
-            int(silence * sample_rate) if silence is not None else None
-        )
 
         # Preprocessing step - create an ordinal encoder to transform textual data to a
         # tensor of integers
@@ -101,18 +114,7 @@ class TTSDataset(Dataset):
             self.encoder.fit([[x] for x in list(allowed_chars) + [end_token]])
 
         # Create a Torchaudio MelSpectrogram generator
-        self.melspectrogram = torchaudio.transforms.MelSpectrogram(
-            sample_rate=sample_rate,
-            n_fft=n_fft,
-            win_length=win_length,
-            hop_length=hop_length,
-            f_min=f_min,
-            f_max=f_max,
-            n_mels=n_mels,
-            power=power,
-            mel_scale="slaney",
-            norm="slaney",
-        )
+        self.melspectrogram = TacotronMelSpectrogram()
 
     def __len__(self):
         return len(self.filenames)
@@ -127,13 +129,11 @@ class TTSDataset(Dataset):
             wav, _ = librosa.effects.trim(wav.numpy(), frame_length=512)
             wav = torch.tensor(wav)
 
-        # Add silence if necessary
-        if self.silence_len is not None:
-            wav = torch.concat([wav, torch.zeros(self.silence_len)], 0)
+        # Pad the wav for creating the Mel spectrogram so its length is a multiple of 256
+        wav_spectrogram, wav_pad_len = pad_wav_multiple(wav)
 
-        # Compute the Mel spectrogram, and translate it to a log scale
-        mel_spectrogram = self.melspectrogram(wav)
-        mel_spectrogram = torch.log(torch.clamp(mel_spectrogram, min=1e-5)).T
+        # Create the Mel spectrogram and save its length
+        mel_spectrogram = self.melspectrogram(wav_spectrogram)
         mel_spectrogram_len = torch.IntTensor([len(mel_spectrogram)])
 
         # Create gate output indicating whether the TTS model should continue producing Mel
@@ -141,19 +141,6 @@ class TTSDataset(Dataset):
         gate = torch.ones(len(mel_spectrogram), 1)
         gate[-1] = 0.0
         gate_len = torch.IntTensor([len(gate)])
-
-        if self.max_mel_len is not None:
-            mel_spectrogram = torch.cat(
-                (
-                    mel_spectrogram,
-                    torch.zeros(
-                        self.max_mel_len - mel_spectrogram.shape[0],
-                        mel_spectrogram.shape[1],
-                    ),
-                ),
-                dim=0,
-            )
-            gate = torch.cat((gate, torch.zeros(self.max_mel_len - gate.shape[0], 1)))
 
         # Text preprocessing ------------------------------------------------------------
         # Append the end token
@@ -163,23 +150,11 @@ class TTSDataset(Dataset):
         chars_idx = self.encoder.transform([[x] for x in text])
 
         # Index 0 is for padding, so increment all characters by 1
-        if self.end_token:
-            chars_idx += 1
+        chars_idx += 1
 
         # Transform to a LongTensor and remove the extra dimension necessary for the OrdinalEncoder
         chars_idx = torch.LongTensor(chars_idx).squeeze(-1)
         chars_idx_len = torch.IntTensor([len(chars_idx)])
-
-        if self.max_text_len is not None:
-            chars_idx = torch.cat(
-                (
-                    chars_idx,
-                    torch.zeros(
-                        self.max_text_len - chars_idx.shape[0], dtype=torch.int
-                    ),
-                ),
-                dim=0,
-            )
 
         out_data = {
             "chars_idx": chars_idx,
@@ -193,6 +168,13 @@ class TTSDataset(Dataset):
             "gate_len": gate_len,
         }
 
+        if self.include_wav:
+            out_data["wav"] = wav
+            out_metadata["wav_len"] = torch.IntTensor([len(wav)])
+            out_metadata["wav_pad_len"] = torch.IntTensor([wav_pad_len])
+
+        out_extra = {"text": text}
+
         if self.speaker_ids is not None:
             out_metadata["speaker_id"] = torch.IntTensor([self.speaker_ids[i]])
 
@@ -201,4 +183,4 @@ class TTSDataset(Dataset):
             if self.feature_override is not None:
                 out_metadata["features"] = torch.Tensor([self.feature_override])
 
-        return out_data, out_metadata
+        return out_data, out_metadata, out_extra
