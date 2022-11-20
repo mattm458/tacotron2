@@ -22,6 +22,7 @@ class LocationLayer(nn.Module):
         processed_attention = self.location_dense(processed_attention)
         return processed_attention
 
+NEGATIVE_INF=-float('inf')
 
 class Attention(nn.Module):
     def __init__(self, attention_rnn_dim, embedding_dim, attention_dim,
@@ -33,7 +34,6 @@ class Attention(nn.Module):
         self.location_layer = LocationLayer(attention_location_n_filters,
                                             attention_location_kernel_size,
                                             attention_dim)
-        self.score_mask_value = -float("inf")
 
     def get_alignment_energies(self, query, processed_memory,
                                attention_weights_cat):
@@ -71,8 +71,7 @@ class Attention(nn.Module):
         alignment = self.get_alignment_energies(
             attention_hidden_state, processed_memory, attention_weights_cat)
 
-        if mask is not None:
-            alignment.data.masked_fill_(~mask, self.score_mask_value)
+        alignment.data.masked_fill_(~mask, NEGATIVE_INF)
 
         attention_weights = F.softmax(alignment, dim=1)
         attention_context = torch.bmm(attention_weights.unsqueeze(1), memory)
