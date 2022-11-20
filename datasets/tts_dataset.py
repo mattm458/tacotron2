@@ -6,8 +6,7 @@ import torch
 import torchaudio
 import unidecode
 from sklearn.preprocessing import OrdinalEncoder
-from speech_utils.audio.transforms import (TacotronMelSpectrogram,
-                                           pad_wav_multiple)
+from speech_utils.audio.transforms import TacotronMelSpectrogram
 from torch.nn import functional as F
 from torch.utils.data import Dataset
 
@@ -65,6 +64,7 @@ class TTSDataset(Dataset):
         expand_abbreviations=False,
         include_wav=False,
         include_text=False,
+        num_frames_per_step: int = 1,
     ):
         """Create a TTSDataset object.
 
@@ -89,6 +89,8 @@ class TTSDataset(Dataset):
         self.include_wav = include_wav
         self.include_text = include_text
 
+        self.num_frames_per_step = num_frames_per_step
+
         # Simple assignments
         self.filenames = filenames
         self.end_token = end_token
@@ -100,11 +102,13 @@ class TTSDataset(Dataset):
 
         # Preprocessing step - ensure textual data only contains allowed characters
         allowed_chars_re = re.compile(f"[^{allowed_chars}]+")
-        self.texts = [
+        texts = [
             allowed_chars_re.sub("", unidecode.unidecode(t)).lower() for t in texts
         ]
         if expand_abbreviations:
-            self.texts = [_expand_abbreviations(x) for x in self.texts]
+            texts = [_expand_abbreviations(t) for t in texts]
+
+        self.texts = texts
 
         self.speaker_ids = speaker_ids
 
@@ -132,11 +136,8 @@ class TTSDataset(Dataset):
             wav, _ = librosa.effects.trim(wav.numpy(), frame_length=512)
             wav = torch.tensor(wav)
 
-        # Pad the wav for creating the Mel spectrogram so its length is a multiple of 256
-        wav_spectrogram, wav_pad_len = pad_wav_multiple(wav)
-
         # Create the Mel spectrogram and save its length
-        mel_spectrogram = self.melspectrogram(wav_spectrogram)
+        mel_spectrogram = self.melspectrogram(wav)
         mel_spectrogram_len = torch.IntTensor([len(mel_spectrogram)])
 
         # Create gate output indicating whether the TTS model should continue producing Mel
@@ -171,21 +172,26 @@ class TTSDataset(Dataset):
             "gate_len": gate_len,
         }
 
+        out_extra = {}
+
+        # Optional additions to the output
         if self.include_wav:
             out_data["wav"] = wav
             out_metadata["wav_len"] = torch.IntTensor([len(wav)])
-            out_metadata["wav_pad_len"] = torch.IntTensor([wav_pad_len])
 
-        out_extra = {}
         if self.include_text:
             out_extra["text"] = text
 
         if self.speaker_ids is not None:
             out_metadata["speaker_id"] = torch.IntTensor([self.speaker_ids[i]])
 
+        # If we're including speech features, include them in output
         if self.features is not None:
-            out_metadata["features"] = torch.Tensor([self.features[i]])
+            # We can optionally override features from the dataset.
+            # This is done to evaluate the controllability of a trained model
             if self.feature_override is not None:
                 out_metadata["features"] = torch.Tensor([self.feature_override])
+            else:
+                out_metadata["features"] = torch.Tensor([self.features[i]])
 
         return out_data, out_metadata, out_extra

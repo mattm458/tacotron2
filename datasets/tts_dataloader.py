@@ -10,11 +10,9 @@ def _collate(data):
     # TTSData/TTSDataLength instance containing data batches
 
     # Separate the TTSData and TTSDataLength instances into separate collated dictionaries
-    tts_data_collated, tts_data_len_collated, tts_extra_collated = (
-        defaultdict(list),
-        defaultdict(list),
-        defaultdict(list),
-    )
+    tts_data_collated = defaultdict(list)
+    tts_data_len_collated = defaultdict(list)
+    tts_extra_collated = defaultdict(list)
 
     for tts_data_i, tts_data_len_i, tts_extra_i in data:
         for k, v in tts_data_i.items():
@@ -24,12 +22,10 @@ def _collate(data):
         for k, v in tts_extra_i.items():
             tts_extra_collated[k].append(v)
 
-    # Pad all tensors in the TTS data dictionary
     tts_data = dict()
     for k, v in tts_data_collated.items():
         tts_data[k] = nn.utils.rnn.pad_sequence(v, batch_first=True)
 
-    # Stack all tensors in the TTS length dictionary
     tts_data_len = dict()
     for k, v in tts_data_len_collated.items():
         tts_data_len[k] = torch.stack(v).squeeze(1)
