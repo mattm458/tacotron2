@@ -3,6 +3,7 @@ from typing import List
 
 import torch
 from torch import nn
+from model.modules_legacy import XavierConv1d
 
 
 class Encoder(nn.Module):
@@ -32,13 +33,14 @@ class Encoder(nn.Module):
         convolutions = []
         for _ in range(3):
             conv_layer = [
-                nn.Conv1d(
+                XavierConv1d(
                     embedding_dim,
                     embedding_dim,
                     kernel_size=encoder_kernel_size,
                     stride=1,
                     padding=int((encoder_kernel_size - 1) / 2),
                     dilation=1,
+                    nonlinearity="relu",
                 ),
                 nn.BatchNorm1d(embedding_dim),
                 nn.ReLU(),

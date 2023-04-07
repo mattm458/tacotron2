@@ -3,8 +3,8 @@ from typing import Optional, Tuple
 import torch
 from torch import Tensor, nn
 
-from model.attention import Attention
-
+from model.attention_legacy import Attention
+from model.modules_legacy import XavierLinear, XavierConv1d
 
 
 class Decoder(nn.Module):
@@ -52,16 +52,17 @@ class Decoder(nn.Module):
         self.speech_features = speech_feature_dim is not None
 
         # Decoder LSTM cell
-        self.lstm = nn.LSTMCell(
+        print(att_rnn_dim + embedding_dim + speech_feature_dim)
+        self.lstm1 = nn.LSTMCell(
             att_rnn_dim + embedding_dim + speech_feature_dim, rnn_hidden_dim, bias=1
         )
         self.lstm_dropout = nn.Dropout(0.1)
 
         # Final layer producing Mel output
-        self.mel_out = nn.Linear(rnn_hidden_dim + embedding_dim, num_mels)
+        self.mel_out = XavierLinear(rnn_hidden_dim + embedding_dim, num_mels)
 
         # Final layer producing gate output
-        self.gate = nn.Linear(rnn_hidden_dim + embedding_dim, 1)
+        self.gate = XavierLinear(rnn_hidden_dim + embedding_dim, 1)
 
     def forward(
         self,
@@ -116,7 +117,7 @@ class Decoder(nn.Module):
 
         decoder_input = torch.concat(decoder_input, -1)
 
-        rnn_h, rnn_c = self.lstm(decoder_input, rnn_hidden)
+        rnn_h, rnn_c = self.lstm1(decoder_input, rnn_hidden)
         rnn_h = self.lstm_dropout(rnn_h)
 
         rnn_out_att_context = torch.cat([rnn_h, att_context], dim=1)

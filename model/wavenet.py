@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from model.modules import XavierConv1d
+from model.modules_legacy import XavierConv1d
 
 
 class GatedConv1d(nn.Module):

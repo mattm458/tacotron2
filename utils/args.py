@@ -73,17 +73,59 @@ finetune_parser.add_argument(
 )
 
 finetune_parser.add_argument(
+    "--prosody-model-post-checkpoint",
+    type=str,
+    required=False,
+    default=None,
+    help="Post-HiFi-GAN model checkpoint required for fine-tuning",
+)
+
+finetune_parser.add_argument(
     "--prosody-model-checkpoint",
     type=str,
     required=False,
     default=None,
-    help="Prosody model checkpoint required for fine-tuning",
+    help="Pre-vocoder model checkpoint required for fine-tuning",
+)
+
+finetune_parser.add_argument(
+    "--hifi-gan-checkpoint",
+    type=str,
+    required=False,
+    default=None,
+    help="HiFi-GAN model checkpoint for finetuning",
+)
+
+finetune_parser.add_argument(
+    "--resume-finetune",
+    action=argparse.BooleanOptionalAction,
+    help="Resume fine-tuning from a single checkpoint instead of loading new components separately",
+)
+
+finetune_parser.add_argument(
+    "--fine-tune-freeze-tacotron",
+    action=argparse.BooleanOptionalAction,
+    help="During the fine-tuning process, freeze the Tacotron instance.",
+)
+
+finetune_parser.add_argument(
+    "--fine-tune-tacotron",
+    action=argparse.BooleanOptionalAction,
+    help="Fine-tune Tacotron's style according to the prosody model.",
+)
+
+finetune_parser.add_argument(
+    "--fine-tune-tacotron-limit",
+    type=int,
+    required=False,
+    default=-1,
+    help="Fine-tune Tacotron for a limited number of iterations.",
 )
 
 finetune_parser.add_argument(
     "--fine-tune-tacotron-style",
     action=argparse.BooleanOptionalAction,
-    help="Fine-tune Tacotron's style according to the prosody model.",
+    help="Fine-tune Tacotron's features according to the prosody model.",
 )
 
 finetune_parser.add_argument(
@@ -157,6 +199,20 @@ say_subparser.add_argument(
     help="The path to a model checkpoint",
 )
 
+say_subparser.add_argument(
+    "--device",
+    type=int,
+    required=False,
+    default=0,
+    help="The CUDA device to use for inference",
+)
+
+say_subparser.add_argument(
+    "--checkpoint-has-hifi-gan",
+    action=argparse.BooleanOptionalAction,
+    help="Indicates whether the checkpoint contains a HiFi-GAN instance.",
+)
+
 
 test_subparser = subparsers.add_parser(
     "test", help="Produce WAV files from the test set"
@@ -190,6 +246,13 @@ test_subparser.add_argument(
     type=str,
     required=True,
     help="The base dataset directory",
+)
+
+test_subparser.add_argument(
+    "--hifi-gan-checkpoint",
+    type=str,
+    required=False,
+    help="A HiFi-GAN checkpoint",
 )
 
 args = parser.parse_args()
