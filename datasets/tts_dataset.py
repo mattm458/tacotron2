@@ -1,7 +1,6 @@
-import math
 import re
 from os import path
-from typing import Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import librosa
 import torch
@@ -9,6 +8,7 @@ import torchaudio
 import unidecode
 from sklearn.preprocessing import OrdinalEncoder
 from speech_utils.audio.transforms import TacotronMelSpectrogram
+from torch import Tensor
 from torch.nn import functional as F
 from torch.utils.data import Dataset
 
@@ -45,31 +45,18 @@ def _expand_abbreviations(text):
     return text
 
 
-_SAMPLE_RATE = 22050
-
-
-def pad_wav(wav, wav_len, hop_len=256):
-    wav_len_expanded = (torch.ceil(wav_len / hop_len)).type(wav_len.dtype) * hop_len
-    pad_len = wav_len_expanded - wav_len
-
-    return F.pad(wav, (pad_len, 0)), wav_len + pad_len
-
-
 class TTSDataset(Dataset):
-    """A class implementing a text-to-speech PyTorch Dataset. It supplies Mel spectrograms and
-    textual data for a text-to-speech model."""
-
     def __init__(
         self,
-        filenames,
-        texts,
-        base_dir,
-        speaker_ids=None,
+        filenames: List[str],
+        texts: List[str],
+        base_dir: str,
+        speaker_ids: Optional[List[str]] = None,
         features=None,
-        allowed_chars=ALLOWED_CHARS,
-        end_token="^",
+        allowed_chars: str = ALLOWED_CHARS,
+        end_token: Optional[str] = "^",
         silence: int = 0,
-        trim=True,
+        trim: bool = True,
         feature_override=None,
         expand_abbreviations=False,
         include_wav=False,
@@ -78,21 +65,6 @@ class TTSDataset(Dataset):
         num_mels: int = 80,
         longest_text: Optional[int] = None,
     ):
-        """Create a TTSDataset object.
-
-        Args:
-            filenames -- a list of wav filenames containing speech
-            texts -- a list of transcriptions associated with the wav files
-            allowed_chars -- a list of characters allowed in transcriptions
-                            (default "!'(),.:;? \\-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
-            end_token -- a special character appended to the end of every transcript.
-                        If None, no token will be appended (default "^")
-            sample_rate -- the sample rate of the wav files (default 22050)
-            silence -- seconds of silence to append to the end of the audio.
-                    If None, no silence is appended (default None)
-            trim -- If True, audio data will be trimmed to remove silence from the beginning and
-                    end. Defaults to True.
-        """
         super().__init__()
 
         self.longest_text = longest_text
@@ -160,15 +132,17 @@ class TTSDataset(Dataset):
     def __len__(self):
         return len(self.filenames)
 
-    def __getitem__(self, i):
+    def __getitem__(
+        self, i: int
+    ) -> Tuple[Dict[str, Tensor], Dict[str, Tensor], Dict[str, Any]]:
         # Audio preprocessing -----------------------------------------------------------
         # Load the audio file and squeeze it to a 1D Tensor
         wav, _ = torchaudio.load(path.join(self.base_dir, self.filenames[i]))
         wav = wav.squeeze(0)
 
         if self.trim:
-            wav, _ = librosa.effects.trim(wav.numpy(), frame_length=512)
-            wav = torch.tensor(wav)
+            wav_np, _ = librosa.effects.trim(wav.numpy(), frame_length=512)
+            wav = torch.tensor(wav_np)
         wav = F.pad(wav, (0, self.silence_frames))
 
         # Create the Mel spectrogram and save its length
@@ -199,28 +173,19 @@ class TTSDataset(Dataset):
 
         chars_idx_len = torch.tensor([len(chars_idx)], dtype=torch.int64)
 
-        out_data = {
+        out_data: Dict[str, Tensor] = {
             "chars_idx": chars_idx,
             "mel_spectrogram": mel_spectrogram,
             "gate": gate,
         }
 
-        out_metadata = {
+        out_metadata: Dict[str, Tensor] = {
             "chars_idx_len": chars_idx_len,
             "mel_spectrogram_len": mel_spectrogram_len,
             "gate_len": gate_len,
         }
 
-        out_extra = {}
-
-        # Optional additions to the output
-        if self.include_wav:
-            expected_wav_len = len(mel_spectrogram) * 256
-            wav_size_diff = expected_wav_len - len(wav)
-            wav_padded = F.pad(wav, (wav_size_diff, 0))
-
-            out_data["wav"] = wav_padded
-            out_metadata["wav_len"] = torch.IntTensor([len(wav_padded)])
+        out_extra: Dict[str, Any] = {}
 
         if self.include_text:
             out_extra["text"] = text
