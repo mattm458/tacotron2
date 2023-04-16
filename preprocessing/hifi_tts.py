@@ -72,7 +72,7 @@ def __do_preprocess(speech_dir: str, iterrow: Tuple[int, Series]):
     extracted_features["text"] = row.text_normalized
 
     wav_filepath = "audio_22050" + row.audio_filepath[5:].replace("flac", "wav")
-    extracted_features["filename"] = wav_filepath
+    extracted_features["wav"] = wav_filepath
 
     save_filepath = path.join(speech_dir, wav_filepath)
 
