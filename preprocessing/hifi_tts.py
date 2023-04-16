@@ -33,6 +33,30 @@ min_amplitude_regex = re.compile(r"Minimum: (-{0,1}\d+.\d+) Pascal")
 max_amplitude_regex = re.compile(r"Maximum: (-{0,1}\d+.\d+) Pascal")
 
 
+def __no_clip(sound: parselmouth.Sound):
+    # Check if the sound will clip after resampling
+    # Do this by checking the minimum and maximum amplitude from the string
+    # representation of the Praat sound object. If max is above 0.99 or
+    # the min is below -0.99, use built in scale_peak() function to
+    # scale the audio so the peaks are no higher than +/- 0.99
+
+    min_amplitude = None
+    max_amplitude = None
+
+    match_min = min_amplitude_regex.search(str(sound))
+    match_max = max_amplitude_regex.search(str(sound))
+
+    if match_min and match_max:
+        min_amplitude = float(match_min.group(1))
+        max_amplitude = float(match_max.group(1))
+
+    if not min_amplitude or not max_amplitude:
+        return None
+
+    if min_amplitude < -0.99 or max_amplitude > 0.99:
+        sound.scale_peak()
+
+
 def __do_preprocess(speech_dir: str, iterrow: Tuple[int, Series]):
     _, row = iterrow
     row = row.copy()
@@ -41,11 +65,7 @@ def __do_preprocess(speech_dir: str, iterrow: Tuple[int, Series]):
     sound = parselmouth.Sound(filepath)
     sound = sound.resample(22050)
 
-    min_amplitude = float(min_amplitude_regex.search(str(sound)).group(1))
-    max_amplitude = float(max_amplitude_regex.search(str(sound)).group(1))
-
-    if min_amplitude < -0.99 or max_amplitude > 0.99:
-        sound.scale_peak()
+    __no_clip(sound)
 
     extracted_features = extract_features(sound=sound, transcript=row.text_normalized)
     extracted_features["speaker_id"] = int(row.speaker_id)
