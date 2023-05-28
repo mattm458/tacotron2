@@ -4,15 +4,26 @@ import os
 import re
 from functools import partial
 from os import path
-from typing import Tuple
+from typing import Optional, Tuple
 
+import librosa
 import numpy as np
 import pandas as pd
 import parselmouth
+import soundfile as sf
 from pandas import Series
 from pqdm.processes import pqdm
 from sklearn.preprocessing import OrdinalEncoder
 from speech_utils.preprocessing.feature_extraction import extract_features
+
+from consts import (
+    FEATURES_ALL,
+    FEATURES_ALL_DATASET_NORM,
+    FEATURES_ALL_DATASET_NORM_CLIP,
+    FEATURES_ALL_SPEAKER_NORM,
+    FEATURES_ALL_SPEAKER_NORM_CLIP,
+)
+from preprocessing.utils import normalize
 
 
 def __load_set(base_dir: str, set: str):
@@ -57,82 +68,157 @@ def __no_clip(sound: parselmouth.Sound):
         sound.scale_peak()
 
 
-def __do_preprocess(speech_dir: str, iterrow: Tuple[int, Series]):
+def __do_preprocess(
+    speech_dir: str,
+    trim: bool,
+    trim_top_db: float,
+    iterrow: Tuple[int, Series],
+):
     _, row = iterrow
     row = row.copy()
 
-    filepath = path.join(speech_dir, row.audio_filepath)
-    sound = parselmouth.Sound(filepath)
+    filepath = row.audio_filepath
+
+    # Resample to 22050
+    sound = parselmouth.Sound(path.join(speech_dir, filepath))
     sound = sound.resample(22050)
+    __no_clip(sound)  # Prevent clipping
+    resampled_filepath = "audio_22050" + row.audio_filepath[5:].replace("flac", "wav")
+    out_filepath = path.join(speech_dir, resampled_filepath)
+    os.makedirs(path.dirname(out_filepath), exist_ok=True)
+    sound.save(file_path=out_filepath, format=parselmouth.SoundFileFormat.WAV)
+    filepath = resampled_filepath
 
-    __no_clip(sound)
+    # Trimming
+    if trim:
+        # Generate trimmed variant paths
+        trimmed_filepath = "audio_22050_trimmed" + row.audio_filepath[5:].replace(
+            "flac", "wav"
+        )
+        trimmed_out_filepath = path.join(speech_dir, trimmed_filepath)
 
-    extracted_features = extract_features(sound=sound, transcript=row.text_normalized)
+        # Load the resampled file, trim it, and save the result
+        wav, sr = librosa.load(path.join(speech_dir, resampled_filepath))
+        trimmed, _ = librosa.effects.trim(wav, top_db=trim_top_db)
+        os.makedirs(path.dirname(trimmed_out_filepath), exist_ok=True)
+        sf.write(file=trimmed_out_filepath, data=trimmed, samplerate=sr)
+        filepath = trimmed_filepath
+
+    extracted_features = extract_features(
+        wavfile=path.join(speech_dir, filepath), transcript=row.text_normalized
+    )
+
     extracted_features["speaker_id"] = int(row.speaker_id)
     extracted_features["text"] = row.text_normalized
 
-    wav_filepath = "audio_22050" + row.audio_filepath[5:].replace("flac", "wav")
-    extracted_features["wav"] = wav_filepath
-
-    save_filepath = path.join(speech_dir, wav_filepath)
-
-    os.makedirs(path.dirname(save_filepath), exist_ok=True)
-    sound.save(file_path=save_filepath, format=parselmouth.SoundFileFormat.WAV)
+    extracted_features["wav"] = resampled_filepath
 
     return extracted_features
 
 
-def __set_preprocess(speech_dir: str, set: str, n_jobs: int):
-    df = __load_set(speech_dir, set)
+def __set_preprocess(
+    speech_dir: str,
+    set_name: str,
+    n_jobs: int,
+    trim: bool,
+    trim_top_df: float,
+):
+    df = __load_set(speech_dir, set_name)
 
     results = pqdm(
-        df.iterrows(), partial(__do_preprocess, speech_dir), n_jobs=n_jobs, desc=set
+        df.iterrows(),
+        partial(__do_preprocess, speech_dir, trim, trim_top_df),
+        n_jobs=n_jobs,
+        desc=set_name,
     )
 
     results = [x for x in results if isinstance(x, dict)]
+    results_df = pd.DataFrame(results)
 
-    return pd.DataFrame(results)
+    results_df[FEATURES_ALL_DATASET_NORM] = normalize(
+        results_df[FEATURES_ALL],
+        results_df[FEATURES_ALL].median(),
+        results_df[FEATURES_ALL].std(),
+    ).values
+    results_df[FEATURES_ALL_DATASET_NORM_CLIP] = results_df[
+        FEATURES_ALL_DATASET_NORM
+    ].clip(-1, 1)
+
+    return results_df
 
 
-def do_preprocess(speech_dir: str, out_dir: str, out_postfix: str, n_jobs: int):
+def do_preprocess(
+    speech_dir: str,
+    out_dir: str,
+    out_postfix: str,
+    n_jobs: int,
+    trim: bool,
+    trim_top_db: bool,
+    split: bool,
+    val_size: Optional[int],
+    test_size: Optional[int],
+    random_state: int,
+):
+    assert not split, "Splitting not supported in HiFi-TTS"
+
     # First preprocess the training data
-    train_results = __set_preprocess(speech_dir, "train", n_jobs)
-    dev_results = __set_preprocess(speech_dir, "dev", n_jobs)
-    test_results = __set_preprocess(speech_dir, "test", n_jobs)
+    train_df = __set_preprocess(speech_dir, "train", n_jobs, trim, trim_top_db)
+    val_df = __set_preprocess(speech_dir, "dev", n_jobs, trim, trim_top_db)
+    test_df = __set_preprocess(speech_dir, "test", n_jobs, trim, trim_top_db)
 
     # Create an ordinal encoder to transform the speaker IDs from large, arbitrary
     # numbers into 0-indexed numbers
     id_encoder = OrdinalEncoder(dtype=np.int64)
-    train_results.speaker_id = id_encoder.fit_transform(
-        train_results.speaker_id.values.reshape(-1, 1)
+    train_df.speaker_id = id_encoder.fit_transform(
+        train_df.speaker_id.values.reshape(-1, 1)
     ).squeeze()
 
     # Transform the dev and test speaker IDs
-    dev_results.speaker_id = id_encoder.transform(
-        dev_results.speaker_id.values.reshape(-1, 1)
+    val_df.speaker_id = id_encoder.transform(
+        val_df.speaker_id.values.reshape(-1, 1)
     ).squeeze()
-    test_results.speaker_id = id_encoder.transform(
-        test_results.speaker_id.values.reshape(-1, 1)
+    test_df.speaker_id = id_encoder.transform(
+        test_df.speaker_id.values.reshape(-1, 1)
     ).squeeze()
 
-    # Save the results
-    train_results.to_csv(
-        path.join(out_dir, f"hifi-tts-train-{out_postfix}.csv"),
-        sep="|",
-        quoting=csv.QUOTE_NONE,
-        index=None,
-    )
+    for set_df, set_name in zip([train_df, val_df, test_df], ["train", "val", "test"]):
+        set_df = set_df.copy()
 
-    dev_results.to_csv(
-        path.join(out_dir, f"hifi-tts-val-{out_postfix}.csv"),
-        sep="|",
-        quoting=csv.QUOTE_NONE,
-        index=None,
-    )
+        # Dataset-level normalization:
+        # Normalize feature values by the median and standard deviation of all
+        # features in the dataset.
+        set_df[FEATURES_ALL_DATASET_NORM] = normalize(
+            set_df[FEATURES_ALL],
+            train_df[FEATURES_ALL].median(),
+            train_df[FEATURES_ALL].std(),
+        ).values
+        set_df[FEATURES_ALL_DATASET_NORM_CLIP] = set_df[FEATURES_ALL_DATASET_NORM].clip(
+            -1, 1
+        )
 
-    test_results.to_csv(
-        path.join(out_dir, f"hifi-tts-test-{out_postfix}.csv"),
-        sep="|",
-        quoting=csv.QUOTE_NONE,
-        index=None,
-    )
+        # Speaker-level normalization:
+        # Normalize feature values by the median and standard deviation of each
+        # speaker individually.
+        speaker_normalized = []
+        for speaker_id, group in set_df.groupby("speaker_id"):
+            speaker_norm = normalize(
+                group[FEATURES_ALL],
+                train_df.loc[train_df.speaker_id == speaker_id, FEATURES_ALL].median(),
+                train_df.loc[train_df.speaker_id == speaker_id, FEATURES_ALL].std(),
+            )
+            speaker_norm.columns = FEATURES_ALL_SPEAKER_NORM
+            speaker_normalized.append(speaker_norm)
+
+        speaker_normalized_df = pd.concat(speaker_normalized, axis=0)
+        set_df = pd.concat([set_df, speaker_normalized_df], axis=1)
+
+        set_df[FEATURES_ALL_SPEAKER_NORM_CLIP] = set_df[FEATURES_ALL_SPEAKER_NORM].clip(
+            -1, 1
+        )
+
+        set_df.to_csv(
+            path.join(out_dir, f"hifi-tts-{set_name}-{out_postfix}.csv"),
+            sep="|",
+            quoting=csv.QUOTE_NONE,
+            index=None,
+        )
