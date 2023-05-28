@@ -1,11 +1,7 @@
-import logging
-from random import random
-from typing import Dict, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import lightning as pl
-import numpy as np
 import torch
-from matplotlib import pyplot as plt
 from torch import Tensor, nn
 from torch.nn import functional as F
 
@@ -13,10 +9,9 @@ from model.decoder import Decoder
 from model.encoder import Encoder
 from model.modules_v2 import AlwaysDropout
 from model.postnet import Postnet
-from utils.hifi_gan import get_random_segment
 
 
-class Tacotron2(pl.LightningModule):
+class Tacotron2(nn.Module):
     def __init__(
         self,
         num_chars: int,
@@ -29,6 +24,14 @@ class Tacotron2(pl.LightningModule):
         rnn_hidden_dim: int,
         postnet_dim: int,
         dropout: float,
+        speaker_tokens: bool = False,
+        num_speakers: Optional[int] = None,
+        speaker_token_dim: Optional[int] = None,
+        speaker_token_attention: bool = False,
+        speaker_token_decoder: bool = False,
+        speaker_token_encoder_out: bool = False,
+        controls: bool = False,
+        controls_dim: Optional[int] = None,
     ):
         super().__init__()
 
@@ -37,6 +40,43 @@ class Tacotron2(pl.LightningModule):
         self.att_rnn_dim = att_rnn_dim
         self.rnn_hidden_dim = rnn_hidden_dim
         self.char_embedding_dim = char_embedding_dim
+
+        self.controls = controls
+        controls_dim = 0 if controls_dim is None else controls_dim
+
+        self.speaker_tokens = speaker_tokens
+        assert not speaker_tokens or (
+            speaker_tokens
+            and num_speakers is not None
+            and speaker_token_dim is not None
+        ), "If speaker tokens are enabled, you must give a num_speakers and speaker_token_dim!"
+
+        assert (not speaker_tokens) or (
+            speaker_tokens
+            and (
+                speaker_token_attention
+                or speaker_token_decoder
+                or speaker_token_encoder_out
+            )
+        ), "If speaker tokens are enabled, they must be used in at least one model location!"
+
+        if speaker_tokens:
+            self.speaker_embedding = nn.Embedding(
+                num_embeddings=num_speakers, embedding_dim=speaker_token_dim
+            )
+            self.speaker_embedding.weight.data.normal_(mean=0, std=0.5)
+        else:
+            speaker_token_dim = 0
+
+        extra_att_in_dim = 0
+        self.speaker_token_attention = speaker_token_attention
+        if self.speaker_token_attention:
+            extra_att_in_dim += speaker_token_dim
+
+        extra_decoder_in_dim = controls_dim
+        self.speaker_token_decoder = speaker_token_decoder
+        if self.speaker_token_decoder:
+            extra_decoder_in_dim += speaker_token_dim
 
         # Tacotron 2 encoder
         self.encoder = Encoder(
@@ -71,20 +111,14 @@ class Tacotron2(pl.LightningModule):
             att_dim=att_dim,
             rnn_hidden_dim=rnn_hidden_dim,
             dropout=dropout,
+            extra_att_in_dim=extra_att_in_dim,
+            extra_decoder_in_dim=extra_decoder_in_dim,
         )
 
         # Postnet layer. Done here since it applies to the entire Mel spectrogram output.
         self.postnet = Postnet(
             num_layers=5, num_mels=num_mels, postnet_dim=postnet_dim, dropout=dropout
         )
-
-        self.tacotron_modules = [
-            self.encoder,
-            self.prenet,
-            self.att_encoder,
-            self.decoder,
-            self.postnet,
-        ]
 
     def init_hidden(self, encoded_len: int, batch_size: int, device: torch.device):
         """Generates initial hidden states, output tensors, and attention vectors.
@@ -122,6 +156,9 @@ class Tacotron2(pl.LightningModule):
         teacher_forcing: bool,
         mel_spectrogram: Optional[Tensor] = None,
         mel_spectrogram_len: Optional[Tensor] = None,
+        speaker_id: Optional[Tensor] = None,
+        controls: Optional[Tensor] = None,
+        max_len_override: Optional[int] = None,
     ):
         if teacher_forcing:
             assert (
@@ -131,22 +168,32 @@ class Tacotron2(pl.LightningModule):
                 mel_spectrogram_len is not None
             ), "Ground-truth Mel spectrogram lengths are required for teacher forcing"
 
-            logging.info(
-                f"Tacotron 2: Teacher forcing enabled"
-            )
-        else:
-            logging.info("Tacotron 2: Teacher forcing disabled")
+        assert not self.speaker_tokens or (
+            self.speaker_tokens and speaker_id is not None
+        ), "speaker_id tensor required when speaker tokens are active!"
+
+        assert not self.controls or (
+            self.controls and controls is not None
+        ), "Controls are enabled, but no control vector was passed to the model!"
 
         device = chars_idx.device
+        longest_chars = chars_idx.shape[1]
+
+        speaker_token: Optional[Tensor] = None
+        if self.speaker_tokens:
+            speaker_token = F.tanh(self.speaker_embedding(speaker_id))
 
         # Encoding --------------------------------------------------------------------------------
         encoded = self.encoder(chars_idx, chars_idx_len)
 
         # Create a mask for the encoded characters
         encoded_mask = (
-            torch.arange(chars_idx.shape[1], device=encoded.device)[None, :]
-            < chars_idx_len[:, None]
+            torch.arange(longest_chars, device=device)[None, :]
+            >= chars_idx_len[:, None]
         )
+
+        if speaker_token is not None:
+            encoded += speaker_token.unsqueeze(1)
 
         # Transform the encoded characters for attention
         att_encoded = self.att_encoder(encoded)
@@ -165,21 +212,26 @@ class Tacotron2(pl.LightningModule):
             encoded_len=encoded.shape[1], batch_size=batch_size, device=encoded.device
         )
 
-        max_len = mel_spectrogram.shape[1] if mel_spectrogram is not None else 2000
+        if max_len_override is not None:
+            max_len = max_len_override
+
+        if max_len_override is None and mel_spectrogram is None:
+            raise Exception(
+                "If Mel spectrogram is not given, max_len_override is required!"
+            )
+        elif max_len_override is None and mel_spectrogram is not None:
+            max_len = mel_spectrogram.shape[1]
 
         if teacher_forcing:
             decoder_in = F.pad(mel_spectrogram, (0, 0, 1, 0))
 
-            if teacher_forcing:
-                decoder_in = self.prenet(decoder_in)
-
+            decoder_in = self.prenet(decoder_in)
             decoder_in = [x.squeeze(1) for x in torch.split(decoder_in, 1, dim=1)]
 
             prev_mel = decoder_in[0]
         else:
-            prev_mel = self.prenet(
-                torch.zeros((batch_size, self.num_mels), device=device)
-            )
+            prenet_in = torch.zeros((batch_size, self.num_mels), device=device)
+            prev_mel = self.prenet(prenet_in)
             done = torch.zeros((batch_size), dtype=torch.bool, device=device)
 
         mels = []
@@ -193,6 +245,22 @@ class Tacotron2(pl.LightningModule):
 
         # Iterate through all decoder inputs
         for i in range(0, max_len):
+            args = {}
+
+            if self.speaker_token_attention:
+                args["extra_att_in"] = speaker_token
+
+            extra_decoder_in: List[Tensor] = []
+
+            if self.speaker_token_decoder and speaker_token is not None:
+                extra_decoder_in.append(speaker_token)
+            if self.controls and controls is not None:
+                extra_decoder_in.append(controls)
+
+            args["extra_decoder_in"] = None
+            if len(extra_decoder_in):
+                args["extra_decoder_in"] = torch.concat(extra_decoder_in, dim=-1)
+
             # Run the decoder
             (
                 mel_out,
@@ -212,6 +280,7 @@ class Tacotron2(pl.LightningModule):
                 encoded=encoded,
                 att_encoded=att_encoded,
                 encoded_mask=encoded_mask,
+                **args
             )
 
             # Save decoder output
@@ -228,7 +297,8 @@ class Tacotron2(pl.LightningModule):
                 if done.all():
                     break
 
-                prev_mel = self.prenet(mel_out.detach())
+                prenet_in = mel_out.detach()
+                prev_mel = self.prenet(prenet_in)
 
         mels = torch.stack(mels, dim=1)
         gates = torch.stack(gates, dim=1)

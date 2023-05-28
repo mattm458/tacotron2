@@ -1,16 +1,16 @@
-import matplotlib
-
-#matplotlib.use("Agg")
-from model.tacotron2 import Tacotron2
-
 from typing import Dict, Optional, Tuple
 
-import numpy as np
 import lightning as pl
+import matplotlib
+import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from torch import Tensor
 from torch.nn import functional as F
+
+from model.tacotron2 import Tacotron2
+
+matplotlib.use("Agg")
 
 
 class TTSModel(pl.LightningModule):
@@ -28,10 +28,25 @@ class TTSModel(pl.LightningModule):
         rnn_hidden_dim: int,
         postnet_dim: int,
         dropout: float,
+        speaker_tokens: bool = False,
+        num_speakers: Optional[int] = None,
+        speaker_token_dim: Optional[int] = None,
+        speaker_token_attention: bool = False,
+        speaker_token_decoder: bool = False,
+        speaker_token_encoder_out: bool = False,
+        controls: bool = False,
+        controls_dim: Optional[int] = None,
+        max_len_override: Optional[int] = None,
     ):
         super().__init__()
+
+        self.save_hyperparameters()
+
         self.lr = lr
         self.weight_decay = weight_decay
+        self.speaker_tokens = speaker_tokens
+        self.controls = controls
+        self.max_len_override = max_len_override
 
         self.tacotron2 = Tacotron2(
             num_chars=num_chars,
@@ -44,12 +59,29 @@ class TTSModel(pl.LightningModule):
             rnn_hidden_dim=rnn_hidden_dim,
             postnet_dim=postnet_dim,
             dropout=dropout,
+            speaker_tokens=speaker_tokens,
+            speaker_token_dim=speaker_token_dim,
+            num_speakers=num_speakers,
+            speaker_token_attention=speaker_token_attention,
+            speaker_token_decoder=speaker_token_decoder,
+            speaker_token_encoder_out=speaker_token_encoder_out,
+            controls=controls,
+            controls_dim=controls_dim,
         )
 
     def configure_optimizers(self):
-        return torch.optim.Adam(
+        optimizer = torch.optim.Adam(
             self.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
+        optimizer_config = {"optimizer": optimizer}
+
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(
+            optimizer, milestones=[33_333, 66_666], gamma=0.1
+        )
+        lr_scheduler_config = {"scheduler": scheduler, "interval": "step"}
+        optimizer_config["lr_scheduler"] = lr_scheduler_config
+
+        return optimizer_config
 
     def forward(
         self,
@@ -58,17 +90,30 @@ class TTSModel(pl.LightningModule):
         teacher_forcing: bool = True,
         mel_spectrogram: Optional[Tensor] = None,
         mel_spectrogram_len: Optional[Tensor] = None,
+        speaker_id: Optional[Tensor] = None,
+        controls: Optional[Tensor] = None,
+        max_len_override: Optional[int] = None,
     ):
         return self.tacotron2(
             chars_idx=chars_idx,
             chars_idx_len=chars_idx_len,
+            teacher_forcing=teacher_forcing,
             mel_spectrogram=mel_spectrogram,
             mel_spectrogram_len=mel_spectrogram_len,
-            teacher_forcing=teacher_forcing,
+            speaker_id=speaker_id,
+            controls=controls,
+            max_len_override=max_len_override,
         )
 
     def validation_step(self, batch, batch_idx):
         tts_data, tts_metadata, _ = batch
+
+        args = {}
+        if self.speaker_tokens:
+            args["speaker_id"] = tts_metadata["speaker_id"]
+
+        if self.controls:
+            args["controls"] = tts_metadata["features"]
 
         mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
             chars_idx=tts_data["chars_idx"],
@@ -76,6 +121,7 @@ class TTSModel(pl.LightningModule):
             teacher_forcing=True,
             mel_spectrogram=tts_data["mel_spectrogram"],
             mel_spectrogram_len=tts_metadata["mel_spectrogram_len"],
+            **args,
         )
 
         gate_loss = F.binary_cross_entropy_with_logits(gate, tts_data["gate"])
@@ -107,12 +153,20 @@ class TTSModel(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         tts_data, tts_metadata, _ = batch
 
+        args = {}
+        if self.speaker_tokens:
+            args["speaker_id"] = tts_metadata["speaker_id"]
+
+        if self.controls:
+            args["controls"] = tts_metadata["features"]
+
         mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
             chars_idx=tts_data["chars_idx"],
             chars_idx_len=tts_metadata["chars_idx_len"],
             teacher_forcing=True,
             mel_spectrogram=tts_data["mel_spectrogram"],
             mel_spectrogram_len=tts_metadata["mel_spectrogram_len"],
+            **args,
         )
 
         loss = 0
@@ -186,7 +240,16 @@ class TTSModel(pl.LightningModule):
                 self.logger.experiment.add_histogram(name, parameter, self.global_step)
 
     def predict_step(self, batch, batch_idx, dataloader_idx=None):
-        tts_data, tts_metadata, _ = batch
+        tts_data, tts_metadata, tts_extra = batch
+
+        text = tts_extra["text"]
+
+        args = {}
+        if self.speaker_tokens:
+            args["speaker_id"] = tts_metadata["speaker_id"]
+
+        if self.controls:
+            args["controls"] = tts_metadata["features"]
 
         mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
             chars_idx=tts_data["chars_idx"],
@@ -194,9 +257,11 @@ class TTSModel(pl.LightningModule):
             teacher_forcing=False,
             mel_spectrogram=tts_data["mel_spectrogram"],
             mel_spectrogram_len=tts_metadata["mel_spectrogram_len"],
+            max_len_override=self.max_len_override,
+            **args,
         )
 
-        return mel_spectrogram, mel_spectrogram_post, gate, alignment
+        return mel_spectrogram, mel_spectrogram_post, gate, alignment, text
 
 
 def save_figure_to_numpy(fig):
