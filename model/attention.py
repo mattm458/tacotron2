@@ -60,7 +60,7 @@ class Attention(nn.Module):
         )
 
         alignment = alignment.squeeze(-1)
-        alignment.data.masked_fill_(~mask, -float("inf"))
+        alignment.masked_fill_(mask, -float("inf"))
 
         attention_weights = F.softmax(alignment, dim=1)
         attention_context = torch.bmm(attention_weights.unsqueeze(1), memory)
