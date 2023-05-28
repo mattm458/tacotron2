@@ -23,9 +23,7 @@ class Encoder(nn.Module):
 
         # Character embeddings
         self.embedding = nn.Embedding(num_chars + 1, embedding_dim, padding_idx=0)
-        std = sqrt(2.0 / (num_chars + embedding_dim))
-        val = sqrt(3.0) * std  # uniform bounds for std
-        self.embedding.weight.data.uniform_(-val, val)
+        self.embedding.weight.data.normal_(mean=0, std=0.5)
 
         # 3 character convolutions. The paper describes these as working like n-grams, mixing data
         # from embedding_kernel_size neighboring characters

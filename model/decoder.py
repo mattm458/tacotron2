@@ -1,3 +1,4 @@
+import logging
 from typing import Optional, Tuple
 
 import torch
@@ -6,13 +7,7 @@ from torch import Tensor, nn
 from model.attention import Attention
 
 
-
 class Decoder(nn.Module):
-    """A class implementing a Tacotron2 decoder. It accepts a sequence of encoded input text, and
-    returns four Tensors: an output Mel spectrogram frame, a gate output indicating whether the
-    decoder has just produced the final Mel spectrogram frame, and the attention weights for this
-    timestep.
-    """
     def __init__(
         self,
         num_mels: int,
@@ -22,24 +17,18 @@ class Decoder(nn.Module):
         att_dim: int,
         rnn_hidden_dim: int,
         dropout: float,
-        speech_feature_dim: Optional[int] = None,
+        extra_att_in_dim: int = 0,
+        extra_decoder_in_dim: int = 0,
     ):
-        """Create a Decoder object.
-
-        Args:
-            num_mels -- number of Mel filterbanks to produce
-            embedding_dim -- The character embedding size
-            prenet_dim -- size of the Mel prenet output
-            att_rnn_dim -- size of the hidden layer of the attention RNN
-            att_dim -- size of hidden attention layers
-            rnn_hidden_dim -- size of the hidden layer of the decoder RNN
-            dropout -- the probability of elements to be zeroed out where dropout is applied
-        """
         super().__init__()
 
         # Attention components - a LSTM cell and attention module
-        self.att_rnn = nn.LSTMCell(prenet_dim + embedding_dim, att_rnn_dim)
+        print(f"Attention RNN: {prenet_dim} + {extra_att_in_dim}")
+        self.att_rnn = nn.LSTMCell(
+            prenet_dim + embedding_dim + extra_att_in_dim, att_rnn_dim
+        )
         self.att_rnn_dropout = nn.Dropout(0.1)
+
         self.attention = Attention(
             attention_rnn_dim=att_rnn_dim,
             embedding_dim=embedding_dim,
@@ -48,17 +37,16 @@ class Decoder(nn.Module):
             attention_location_kernel_size=31,
         )
 
-        speech_feature_dim = 0 if speech_feature_dim is None else speech_feature_dim
-        self.speech_features = speech_feature_dim is not None
-
         # Decoder LSTM cell
         self.lstm = nn.LSTMCell(
-            att_rnn_dim + embedding_dim + speech_feature_dim, rnn_hidden_dim, bias=1
+            att_rnn_dim + embedding_dim + extra_decoder_in_dim, rnn_hidden_dim
         )
         self.lstm_dropout = nn.Dropout(0.1)
 
         # Final layer producing Mel output
-        self.mel_out = nn.Linear(rnn_hidden_dim + embedding_dim, num_mels)
+        self.mel_out = nn.Linear(
+            rnn_hidden_dim + embedding_dim + extra_decoder_in_dim, num_mels
+        )
 
         # Final layer producing gate output
         self.gate = nn.Linear(rnn_hidden_dim + embedding_dim, 1)
@@ -75,26 +63,16 @@ class Decoder(nn.Module):
         att_encoded,
         encoded_mask,
         speech_features: Optional[Tensor] = None,
+        extra_att_in: Optional[Tensor] = None,
+        extra_decoder_in: Optional[Tensor] = None,
     ):
-        """Perform a decoder forward pass.
-
-        Args:
-            prev_mel -- the previously generated Mel spectrogram frame
-            prev_mel_prenet -- the previously generated Mel spectrogram frame processed by the
-                               prenet
-            att_rnn_hidden -- accumulated hidden and cell state for the attention RNN
-            att_context -- accumulated attention context vectors
-            att_weights -- attention weights from the previous Mel spectrogram frame
-            att_weights_cum -- cumulative attention weights
-            rnn_hidden -- accumulated hidden and cell state for both layers of the decoder RNN
-            att_encoded - encoder output processed for attention
-            dropout -- the probability of elements to be zeroed out where dropout is applied
-            encoded_mask -- a mask for batched encoder input
-        """
         # Attention -------------------------------------------------------------------------------
         # Attention RNN
-        att_rnn_input = torch.concat([prev_mel_prenet, att_context], -1)
-        att_h, att_c = self.att_rnn(att_rnn_input, att_rnn_hidden)
+        att_rnn_input = [prev_mel_prenet, att_context]
+        if extra_att_in is not None:
+            att_rnn_input.append(extra_att_in)
+
+        att_h, att_c = self.att_rnn(torch.concat(att_rnn_input, -1), att_rnn_hidden)
         att_h = self.att_rnn_dropout(att_h)
 
         # Attention module
@@ -102,7 +80,11 @@ class Decoder(nn.Module):
             [att_weights.unsqueeze(1), att_weights_cum.unsqueeze(1)], 1
         )
         att_context, att_weights = self.attention(
-            att_h, encoded, att_encoded, att_weights_cat, encoded_mask
+            attention_hidden_state=att_h,
+            memory=encoded,
+            processed_memory=att_encoded,
+            attention_weights_cat=att_weights_cat,
+            mask=encoded_mask,
         )
 
         # Save cumulative attention weights
@@ -113,17 +95,19 @@ class Decoder(nn.Module):
         decoder_input = [att_h, att_context]
         if speech_features is not None:
             decoder_input.append(speech_features)
+        if extra_decoder_in is not None:
+            decoder_input.append(extra_decoder_in)
 
-        decoder_input = torch.concat(decoder_input, -1)
-
-        rnn_h, rnn_c = self.lstm(decoder_input, rnn_hidden)
+        rnn_h, rnn_c = self.lstm(torch.concat(decoder_input, -1), rnn_hidden)
         rnn_h = self.lstm_dropout(rnn_h)
 
-        rnn_out_att_context = torch.cat([rnn_h, att_context], dim=1)
+        rnn_out = [rnn_h, att_context]
+        gate_out = self.gate(torch.cat(rnn_out, -1))
 
-        # Produce Mel spectrogram and gate outputs
-        mel_out = self.mel_out(rnn_out_att_context)
-        gate_out = self.gate(rnn_out_att_context)
+        if extra_decoder_in is not None:
+            rnn_out.append(extra_decoder_in)
+
+        mel_out = self.mel_out(torch.cat(rnn_out, -1))
 
         return (
             mel_out,
