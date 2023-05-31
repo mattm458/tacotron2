@@ -29,13 +29,13 @@ class TTSModel(pl.LightningModule):
         postnet_dim: int,
         dropout: float,
         speaker_tokens: bool = False,
-        num_speakers: Optional[int] = None,
+        num_speakers: int = 1,
         speaker_token_dim: Optional[int] = None,
         speaker_token_attention: bool = False,
         speaker_token_decoder: bool = False,
         speaker_token_encoder_out: bool = False,
         controls: bool = False,
-        controls_dim: Optional[int] = None,
+        controls_dim: int = 0,
         max_len_override: Optional[int] = None,
     ):
         super().__init__()
