@@ -1,0 +1,48 @@
+{
+  "dataset": {
+    "train": "data/lj-hifi-train.csv",
+    "test": "data/lj-hifi-test.csv",
+    "val": "data/lj-hifi-val.csv",
+    "preprocessing": {
+      "allowed_chars": "!'(),.:;? \\-abcdefghijklmnopqrstuvwxyz",
+      "expand_abbreviations": true,
+      "end_token": "^",
+      "silence": 512,
+      "trim": false,
+      "num_mels": 80,
+      "cache": true
+    }
+  },
+  "training": {
+    "lr": 0.001,
+    "batch_size": 64,
+    "weight_decay": 0.000001,
+    "precision": "16-mixed",
+    "name": "vanilla-lj-hifi-stop",
+    "float32_matmul_precision": "high",
+    "stopping_val_loss_threshold": null,
+    "args": {
+      "val_check_interval": 0.25,
+      "max_steps": 100000
+    }
+  },
+  "model": {
+    "args": {
+      "prenet_dim": 256,
+      "att_rnn_dim": 1024,
+      "att_dim": 128,
+      "rnn_hidden_dim": 1024,
+      "postnet_dim": 512,
+      "dropout": 0.5,
+      "char_embedding_dim": 512,
+      "encoder_kernel_size": 5,
+      "speaker_tokens": false
+    }
+  },
+  "extensions": {
+    "speaker_id": false,
+    "controls": {
+      "active": false
+    }
+  }
+}

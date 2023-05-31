@@ -1,15 +1,16 @@
 {
   "dataset": {
-    "train": "data/ljspeech-train-v4.csv",
-    "test": "data/ljspeech-test-v4.csv",
-    "val": "data/ljspeech-val-v4.csv",
+    "train": "data/ljspeech-train.csv",
+    "test": "data/ljspeech-test.csv",
+    "val": "data/ljspeech-val.csv",
     "preprocessing": {
       "allowed_chars": "!'(),.:;? \\-abcdefghijklmnopqrstuvwxyz",
       "expand_abbreviations": true,
       "end_token": "^",
-      "silence": 1280,
-      "trim": true,
-      "num_mels": 80
+      "silence": 512,
+      "trim": false,
+      "num_mels": 80,
+      "cache": true
     }
   },
   "training": {
@@ -17,9 +18,12 @@
     "batch_size": 64,
     "weight_decay": 0.000001,
     "precision": "16-mixed",
-    "max_epochs": 500,
-    "name": "vanilla-ljspeech-token",
-    "float32_matmul_precision": "high"
+    "name": "vanilla-ljspeech-stop",
+    "float32_matmul_precision": "high",
+    "stopping_val_loss_threshold": null,
+    "args": {
+      "max_steps": 100000
+    }
   },
   "model": {
     "args": {
@@ -30,7 +34,14 @@
       "postnet_dim": 512,
       "dropout": 0.5,
       "char_embedding_dim": 512,
-      "encoder_kernel_size": 5
+      "encoder_kernel_size": 5,
+      "speaker_tokens": false
+    }
+  },
+  "extensions": {
+    "speaker_id": false,
+    "controls": {
+      "active": false
     }
   }
 }
