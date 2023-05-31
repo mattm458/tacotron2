@@ -95,6 +95,13 @@ def do_train(
         path.join(results_dir, "lightning_logs"), name=training_config["name"]
     )
 
+    controls = False
+    controls_dim = 0
+
+    if extensions_config["controls"]["active"]:
+        controls = True
+        controls_dim = len(extensions_config["controls"]["features"])
+
     model = TTSModel(
         lr=training_config["lr"],
         weight_decay=training_config["weight_decay"],
@@ -110,7 +117,6 @@ def do_train(
         accelerator="gpu",
         precision=training_config["precision"],
         gradient_clip_val=1.0,
-        check_val_every_n_epoch=1,
         callbacks=[LearningRateMonitor(logging_interval="step")],
         **training_config["args"],
     )
