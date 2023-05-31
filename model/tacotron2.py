@@ -25,13 +25,13 @@ class Tacotron2(nn.Module):
         postnet_dim: int,
         dropout: float,
         speaker_tokens: bool = False,
-        num_speakers: Optional[int] = None,
+        num_speakers: int = 1,
         speaker_token_dim: Optional[int] = None,
         speaker_token_attention: bool = False,
         speaker_token_decoder: bool = False,
         speaker_token_encoder_out: bool = False,
         controls: bool = False,
-        controls_dim: Optional[int] = None,
+        controls_dim: int = 0,
     ):
         super().__init__()
 
@@ -42,9 +42,14 @@ class Tacotron2(nn.Module):
         self.char_embedding_dim = char_embedding_dim
 
         self.controls = controls
-        controls_dim = 0 if controls_dim is None else controls_dim
+        self.controls_dim = controls_dim
+        if self.controls:
+            print(f"Tacotron2: Controls enabled with a size of {controls_dim}")
+        else:
+            print(f"Tacotron2: Controls disabled")
 
         self.speaker_tokens = speaker_tokens
+
         assert not speaker_tokens or (
             speaker_tokens
             and num_speakers is not None
@@ -60,13 +65,12 @@ class Tacotron2(nn.Module):
             )
         ), "If speaker tokens are enabled, they must be used in at least one model location!"
 
+        speaker_token_dim = 0
         if speaker_tokens:
             self.speaker_embedding = nn.Embedding(
                 num_embeddings=num_speakers, embedding_dim=speaker_token_dim
             )
             self.speaker_embedding.weight.data.normal_(mean=0, std=0.5)
-        else:
-            speaker_token_dim = 0
 
         extra_att_in_dim = 0
         self.speaker_token_attention = speaker_token_attention
@@ -176,6 +180,10 @@ class Tacotron2(nn.Module):
             self.controls and controls is not None
         ), "Controls are enabled, but no control vector was passed to the model!"
 
+        assert self.controls or (
+            not self.controls and not controls
+        ), "Controls are disabled, but a control vector was passed to the model!"
+
         device = chars_idx.device
         longest_chars = chars_idx.shape[1]
 
@@ -280,7 +288,7 @@ class Tacotron2(nn.Module):
                 encoded=encoded,
                 att_encoded=att_encoded,
                 encoded_mask=encoded_mask,
-                **args
+                **args,
             )
 
             # Save decoder output
