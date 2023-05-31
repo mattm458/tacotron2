@@ -1,3 +1,4 @@
+import os
 import re
 from os import path
 from typing import Any, Dict, List, Optional, Tuple
@@ -57,17 +58,35 @@ class TTSDataset(Dataset):
         end_token: Optional[str] = "^",
         silence: int = 0,
         trim: bool = True,
+        trim_top_db: int = 60,
         feature_override=None,
         expand_abbreviations=False,
         include_wav=False,
         include_text=False,
         num_frames_per_step: int = 1,
         num_mels: int = 80,
-        longest_text: Optional[int] = None,
+        cache=False,
+        cache_dir=None,
     ):
         super().__init__()
 
-        self.longest_text = longest_text
+        assert (
+            cache and cache_dir is not None
+        ) or not cache, "If caching spectrograms, a cache directory is required"
+
+        if cache and path.exists(cache_dir):
+            print(
+                f"Cache directory {cache_dir} already exists! Are you sure the cached spectrograms are correct?"
+            )
+        elif cache and not path.exists(cache_dir):
+            os.mkdir(cache_dir)
+
+        if cache:
+            print(f"Dataset: Caching Mel spectrograms at {cache_dir}")
+        else:
+            print(f"Dataset: Not caching Mel spectrograms")
+        self.cache = cache
+        self.cache_dir = cache_dir
 
         if end_token is not None and end_token in allowed_chars:
             raise Exception("end_token cannot be in allowed_chars!")
@@ -86,14 +105,17 @@ class TTSDataset(Dataset):
             print(f"Dataset: Using end token {end_token}")
 
         self.trim = trim
+        self.trim_top_db = trim_top_db
         if trim:
-            print("Dataset: Trimming silence from input audio files")
+            print(
+                f"Dataset: Trimming silence from input audio files with top db {trim_top_db}"
+            )
         else:
             print("Dataset: Not trimming silence from input audio files")
 
         print(f"Dataset: Adding {silence} frames of silence to the end of each clip")
 
-        self.silence_frames = silence
+        self.silence = silence
 
         self.base_dir = base_dir
 
@@ -105,11 +127,13 @@ class TTSDataset(Dataset):
         # Preprocessing step - ensure textual data only contains allowed characters
         allowed_chars_re = re.compile(f"[^{allowed_chars}]+")
         texts = [
-            allowed_chars_re.sub("", unidecode.unidecode(t)).lower() for t in texts
+            allowed_chars_re.sub("", unidecode.unidecode(t).lower()) for t in texts
         ]
         if expand_abbreviations:
             print("Dataset: Expanding abbreviations in input text...")
             texts = [_expand_abbreviations(t) for t in texts]
+        if end_token is not None:
+            texts = [t + end_token for t in texts]
 
         self.texts = texts
 
@@ -124,10 +148,7 @@ class TTSDataset(Dataset):
             self.encoder.fit([[x] for x in list(allowed_chars) + [end_token]])
 
         # Create a Torchaudio MelSpectrogram generator
-        self.melspectrogram = TacotronMelSpectrogram(
-            n_mels=num_mels,
-            cache=False,
-        )
+        self.melspectrogram = TacotronMelSpectrogram(n_mels=num_mels)
 
     def __len__(self):
         return len(self.filenames)
@@ -137,16 +158,33 @@ class TTSDataset(Dataset):
     ) -> Tuple[Dict[str, Tensor], Dict[str, Tensor], Dict[str, Any]]:
         # Audio preprocessing -----------------------------------------------------------
         # Load the audio file and squeeze it to a 1D Tensor
-        wav, _ = torchaudio.load(path.join(self.base_dir, self.filenames[i]))
-        wav = wav.squeeze(0)
 
-        if self.trim:
-            wav_np, _ = librosa.effects.trim(wav.numpy(), frame_length=512)
-            wav = torch.tensor(wav_np)
-        wav = F.pad(wav, (0, self.silence_frames))
+        mel_spectrogram_cached = False
+        cache_path = None
 
-        # Create the Mel spectrogram and save its length
-        mel_spectrogram = self.melspectrogram(wav, id=str(i))
+        if self.cache:
+            cache_path = path.join(
+                self.cache_dir, f"{self.filenames[i].replace('/', '_')}.pt"
+            )
+            if path.exists(cache_path):
+                mel_spectrogram = torch.load(cache_path)
+                mel_spectrogram_cached = True
+
+        if not mel_spectrogram_cached:
+            wav, _ = torchaudio.load(path.join(self.base_dir, self.filenames[i]))
+            wav = wav.squeeze(0)
+
+            if self.trim:
+                wav_np, _ = librosa.effects.trim(wav.numpy(), top_db=self.trim_top_db)
+                wav = torch.tensor(wav_np)
+            wav = F.pad(wav, (0, self.silence))
+
+            # Create the Mel spectrogram and save its length
+            mel_spectrogram = self.melspectrogram(wav, id=str(i))
+
+            if cache_path is not None:
+                torch.save(mel_spectrogram, cache_path)
+
         mel_spectrogram_len = torch.IntTensor([len(mel_spectrogram)])
 
         # Create gate output indicating whether the TTS model should continue producing Mel
@@ -156,8 +194,7 @@ class TTSDataset(Dataset):
         gate_len = torch.IntTensor([len(gate)])
 
         # Text preprocessing ------------------------------------------------------------
-        # Append the end token
-        text = self.texts[i] + (self.end_token if self.end_token is not None else "")
+        text = self.texts[i]
 
         # Encode the text
         chars_idx = self.encoder.transform([[x] for x in text])
@@ -167,9 +204,6 @@ class TTSDataset(Dataset):
 
         # Transform to a tensor and remove the extra dimension necessary for the OrdinalEncoder
         chars_idx = torch.tensor(chars_idx, dtype=torch.int64).squeeze(-1)
-
-        if self.longest_text is not None:
-            chars_idx = F.pad(chars_idx, (0, self.longest_text - len(chars_idx)))
 
         chars_idx_len = torch.tensor([len(chars_idx)], dtype=torch.int64)
 
