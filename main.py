@@ -1,11 +1,13 @@
 import json
 import time
+from typing import Optional
 
 import click
 from click import Context
 
 from run.say import do_say
 from run.test import do_test
+from run.test_correlation import do_test_correlation
 from run.train import do_train
 
 
@@ -44,7 +46,24 @@ def main(ctx: Context, config: str, device: int):
     type=str,
     help="A directory containing audio files from the dataset.",
 )
-def train(ctx: Context, speech_dir: str):
+@click.option(
+    "--results-dir",
+    required=False,
+    type=str,
+    help="The directory to save results. Defaults to the model configuration name with a timestamp.",
+)
+@click.option(
+    "--resume-ckpt",
+    required=False,
+    type=str,
+    help="Resume training from the given checkpoint.",
+)
+def train(
+    ctx: Context,
+    speech_dir: str,
+    results_dir: Optional[str] = None,
+    resume_ckpt: Optional[str] = None,
+):
     if ctx.obj["config"] is None:
         raise Exception("Configuration required for training!")
 
@@ -52,8 +71,11 @@ def train(ctx: Context, speech_dir: str):
         dataset_config=ctx.obj["config"]["dataset"],
         training_config=ctx.obj["config"]["training"],
         model_config=ctx.obj["config"]["model"],
+        extensions_config=ctx.obj["config"]["extensions"],
         device=ctx.obj["device"],
         speech_dir=speech_dir,
+        results_dir=results_dir,
+        resume_ckpt=resume_ckpt,
     )
 
 
@@ -70,7 +92,28 @@ def train(ctx: Context, speech_dir: str):
     default="out.wav",
     help="Name of a .wav file to output. Default: out.wav",
 )
-def say(ctx: Context, checkpoint: str, text: str, out: str):
+@click.option(
+    "--speaker-id",
+    required=False,
+    type=int,
+    default=None,
+    help="A speaker ID to use in inference if using a multi-speaker model",
+)
+@click.option(
+    "--hifi-gan-checkpoint",
+    required=False,
+    type=str,
+    default=None,
+    help="A trained HiFi-GAN model checkpoint",
+)
+def say(
+    ctx: Context,
+    checkpoint: str,
+    text: str,
+    out: str,
+    speaker_id: Optional[int],
+    hifi_gan_checkpoint: Optional[str],
+):
     if ctx.obj["config"] is None:
         raise Exception("Configuration required for speech!")
 
@@ -78,10 +121,13 @@ def say(ctx: Context, checkpoint: str, text: str, out: str):
         dataset_config=ctx.obj["config"]["dataset"],
         training_config=ctx.obj["config"]["training"],
         model_config=ctx.obj["config"]["model"],
+        extensions_config=ctx.obj["config"]["extensions"],
         device=ctx.obj["device"],
         checkpoint=checkpoint,
         text=text,
         output=out,
+        speaker_id=speaker_id,
+        hifi_gan_checkpoint=hifi_gan_checkpoint,
     )
 
 
@@ -100,6 +146,43 @@ def say(ctx: Context, checkpoint: str, text: str, out: str):
     "--hifi-gan-checkpoint",
     required=False,
     type=str,
+    default=None,
+    help="A trained HiFi-GAN model checkpoint",
+)
+def test_correlation(
+    ctx: Context, speech_dir: str, checkpoint: str, hifi_gan_checkpoint: str
+):
+    if ctx.obj["config"] is None:
+        raise Exception("Configuration required for testing!")
+
+    do_test_correlation(
+        dataset_config=ctx.obj["config"]["dataset"],
+        training_config=ctx.obj["config"]["training"],
+        model_config=ctx.obj["config"]["model"],
+        extensions_config=ctx.obj["config"]["extensions"],
+        device=ctx.obj["device"],
+        speech_dir=speech_dir,
+        checkpoint=checkpoint,
+        hifi_gan_checkpoint=hifi_gan_checkpoint,
+    )
+
+
+@main.command()
+@click.pass_context
+@click.option(
+    "--speech-dir",
+    required=True,
+    type=str,
+    help="A directory containing audio files from the dataset.",
+)
+@click.option(
+    "--checkpoint", required=True, type=str, help="A trained Tacotron model checkpoint"
+)
+@click.option(
+    "--hifi-gan-checkpoint",
+    required=False,
+    type=str,
+    default=None,
     help="A trained HiFi-GAN model checkpoint",
 )
 def test(ctx: Context, speech_dir: str, checkpoint: str, hifi_gan_checkpoint: str):
@@ -110,6 +193,7 @@ def test(ctx: Context, speech_dir: str, checkpoint: str, hifi_gan_checkpoint: st
         dataset_config=ctx.obj["config"]["dataset"],
         training_config=ctx.obj["config"]["training"],
         model_config=ctx.obj["config"]["model"],
+        extensions_config=ctx.obj["config"]["extensions"],
         device=ctx.obj["device"],
         speech_dir=speech_dir,
         checkpoint=checkpoint,
@@ -148,8 +232,29 @@ def test(ctx: Context, speech_dir: str, checkpoint: str, hifi_gan_checkpoint: st
     default=8,
     help="The number of multiprocessing jobs to use while processing.",
 )
+@click.option(
+    "--trim",
+    is_flag=True,
+    show_default=True,
+    default=False,
+    help="Whether to trim the audio files during preprocessing.",
+)
+@click.option(
+    "--trim-top-db",
+    required=False,
+    show_default=True,
+    type=float,
+    default=60,
+    help="If trimming, The threshold (in decibels) below reference to consider as silence.",
+)
 def preprocess(
-    dataset: str, speech_dir: str, out_dir: str, out_postfix: str, n_jobs: int
+    dataset: str,
+    speech_dir: str,
+    out_dir: str,
+    out_postfix: str,
+    n_jobs: int,
+    trim: bool,
+    trim_top_db: float,
 ):
     if out_postfix is None:
         out_postfix = str(int(time.time()))
@@ -157,7 +262,25 @@ def preprocess(
     if dataset == "hifi-tts":
         from preprocessing.hifi_tts import do_preprocess
 
-        do_preprocess(speech_dir, out_dir, out_postfix, n_jobs)
+        do_preprocess(
+            speech_dir,
+            out_dir,
+            out_postfix,
+            n_jobs,
+            trim,
+            trim_top_db,
+        )
+    elif dataset == "ljspeech":
+        from preprocessing.ljspeech import do_preprocess
+
+        do_preprocess(
+            speech_dir,
+            out_dir,
+            out_postfix,
+            n_jobs,
+            trim,
+            trim_top_db,
+        )
     else:
         raise NotImplementedError(f"Preprocessing for {dataset} not implemented!")
 
