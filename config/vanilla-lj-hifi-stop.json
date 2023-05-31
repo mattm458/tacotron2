@@ -35,12 +35,14 @@
       "postnet_dim": 512,
       "dropout": 0.5,
       "char_embedding_dim": 512,
-      "encoder_kernel_size": 5,
-      "speaker_tokens": false
+      "encoder_kernel_size": 5
     }
   },
   "extensions": {
-    "speaker_id": false,
+    "speaker_tokens": {
+      "active": true,
+      "num_speakers": 4
+    },
     "controls": {
       "active": false
     }

@@ -39,7 +39,9 @@
     }
   },
   "extensions": {
-    "speaker_id": false,
+    "speaker_tokens": {
+      "active": false
+    },
     "controls": {
       "active": false
     }

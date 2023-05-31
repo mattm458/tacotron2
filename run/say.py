@@ -58,6 +58,13 @@ def do_say(
         generator.eval()
         generator = generator.cuda(0)
 
+    controls = False
+    controls_dim = 0
+
+    if extensions_config["controls"]["active"]:
+        controls = True
+        controls_dim = len(extensions_config["controls"]["features"])
+
     model = TTSModel.load_from_checkpoint(
         checkpoint,
         lr=training_config["lr"],
@@ -65,6 +72,8 @@ def do_say(
         num_chars=len(dataset_config["preprocessing"]["allowed_chars"])
         + (dataset_config["preprocessing"]["end_token"] is not None),
         num_mels=dataset_config["preprocessing"]["num_mels"],
+        controls=controls,
+        controls_dim=controls_dim,
         **model_config["args"],
         map_location="cpu",
     ).cpu()

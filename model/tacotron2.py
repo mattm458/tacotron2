@@ -26,10 +26,6 @@ class Tacotron2(nn.Module):
         dropout: float,
         speaker_tokens: bool = False,
         num_speakers: int = 1,
-        speaker_token_dim: Optional[int] = None,
-        speaker_token_attention: bool = False,
-        speaker_token_decoder: bool = False,
-        speaker_token_encoder_out: bool = False,
         controls: bool = False,
         controls_dim: int = 0,
     ):
@@ -49,38 +45,19 @@ class Tacotron2(nn.Module):
             print(f"Tacotron2: Controls disabled")
 
         self.speaker_tokens = speaker_tokens
-
         assert not speaker_tokens or (
-            speaker_tokens
-            and num_speakers is not None
-            and speaker_token_dim is not None
-        ), "If speaker tokens are enabled, you must give a num_speakers and speaker_token_dim!"
+            speaker_tokens and num_speakers is not None
+        ), "If speaker tokens are enabled, you must give a num_speakers!"
+        if self.speaker_tokens:
+            print(f"Tacotron2: Speaker tokens enabled with {num_speakers} speakers")
+        else:
+            print("Tacotron2: Speaker tokens disabled")
 
-        assert (not speaker_tokens) or (
-            speaker_tokens
-            and (
-                speaker_token_attention
-                or speaker_token_decoder
-                or speaker_token_encoder_out
-            )
-        ), "If speaker tokens are enabled, they must be used in at least one model location!"
-
-        speaker_token_dim = 0
         if speaker_tokens:
             self.speaker_embedding = nn.Embedding(
-                num_embeddings=num_speakers, embedding_dim=speaker_token_dim
+                num_embeddings=num_speakers, embedding_dim=char_embedding_dim
             )
             self.speaker_embedding.weight.data.normal_(mean=0, std=0.5)
-
-        extra_att_in_dim = 0
-        self.speaker_token_attention = speaker_token_attention
-        if self.speaker_token_attention:
-            extra_att_in_dim += speaker_token_dim
-
-        extra_decoder_in_dim = controls_dim
-        self.speaker_token_decoder = speaker_token_decoder
-        if self.speaker_token_decoder:
-            extra_decoder_in_dim += speaker_token_dim
 
         # Tacotron 2 encoder
         self.encoder = Encoder(
@@ -115,8 +92,7 @@ class Tacotron2(nn.Module):
             att_dim=att_dim,
             rnn_hidden_dim=rnn_hidden_dim,
             dropout=dropout,
-            extra_att_in_dim=extra_att_in_dim,
-            extra_decoder_in_dim=extra_decoder_in_dim,
+            extra_decoder_in_dim=controls_dim,
         )
 
         # Postnet layer. Done here since it applies to the entire Mel spectrogram output.
@@ -255,13 +231,8 @@ class Tacotron2(nn.Module):
         for i in range(0, max_len):
             args = {}
 
-            if self.speaker_token_attention:
-                args["extra_att_in"] = speaker_token
-
             extra_decoder_in: List[Tensor] = []
 
-            if self.speaker_token_decoder and speaker_token is not None:
-                extra_decoder_in.append(speaker_token)
             if self.controls and controls is not None:
                 extra_decoder_in.append(controls)
 

@@ -47,7 +47,9 @@ def do_train(
     train_dataset = TTSDataset(
         filenames=train_df.wav,
         texts=train_df.text,
-        speaker_ids=train_df.speaker_id if extensions_config["speaker_id"] else None,
+        speaker_ids=train_df.speaker_id
+        if extensions_config["speaker_tokens"]["active"]
+        else None,
         features=train_features,
         base_dir=speech_dir,
         cache_dir=cache_dir,
@@ -62,7 +64,9 @@ def do_train(
     val_dataset = TTSDataset(
         filenames=val_df.wav,
         texts=val_df.text,
-        speaker_ids=val_df.speaker_id if extensions_config["speaker_id"] else None,
+        speaker_ids=train_df.speaker_id
+        if extensions_config["speaker_tokens"]["active"]
+        else None,
         features=val_features,
         base_dir=speech_dir,
         cache_dir=cache_dir,
@@ -97,10 +101,15 @@ def do_train(
 
     controls = False
     controls_dim = 0
-
     if extensions_config["controls"]["active"]:
         controls = True
         controls_dim = len(extensions_config["controls"]["features"])
+
+    speaker_tokens = False
+    num_speakers = 1
+    if extensions_config["speaker_tokens"]["active"]:
+        speaker_tokens = True
+        num_speakers = extensions_config["speaker_tokens"]["num_speakers"]
 
     model = TTSModel(
         lr=training_config["lr"],
@@ -108,6 +117,10 @@ def do_train(
         num_chars=len(dataset_config["preprocessing"]["allowed_chars"])
         + (dataset_config["preprocessing"]["end_token"] is not None),
         num_mels=dataset_config["preprocessing"]["num_mels"],
+        controls=controls,
+        controls_dim=controls_dim,
+        speaker_tokens=speaker_tokens,
+        num_speakers=num_speakers,
         **model_config["args"],
     )
 
