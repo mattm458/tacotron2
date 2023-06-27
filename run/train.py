@@ -28,8 +28,8 @@ def do_train(
     prosody_model_checkpoint: Optional[str] = None,
 ):
     if results_dir is None:
-        results_dir = f"results_{training_config['name']} {datetime.datetime.now()}"
-        os.mkdir(results_dir)
+       results_dir = f"results_{training_config['name']} {datetime.datetime.now()}"
+       os.mkdir(results_dir)
 
     cache_dir = path.join(results_dir, "mel_cache")
 
@@ -39,6 +39,26 @@ def do_train(
     val_df = pd.read_csv(
         dataset_config["val"], delimiter="|", quoting=csv.QUOTE_NONE, engine="c"
     )
+
+    # If the config restricts the data to a single speaker ID, deal with this now
+    if extensions_config["speaker_tokens"]["force_speaker"] is not None:
+        # This is a single-speaker model - no need for speaker tokens
+        if extensions_config["speaker_tokens"]["active"]:
+            raise Exception("Cannot use speaker tokens with force_speaker parameter!")
+
+        # If we're offering controls, ensure we're only offering them over speaker-normalized
+        # controls. Otherwise we might get weird results!
+        if extensions_config["controls"]["active"]:
+            if not all(
+                ["speaker_norm" in x for x in extensions_config["controls"]["features"]]
+            ):
+                raise Exception(
+                    "If force_speaker, all controls must be for speaker-normalized values!"
+                )
+
+        force_speaker_id = extensions_config["speaker_tokens"]["force_speaker"]
+        train_df = train_df[train_df.speaker_id == force_speaker_id]
+        val_df = val_df[val_df.speaker_id == force_speaker_id]
 
     train_features = (
         train_df[extensions_config["controls"]["features"]].values.tolist()
@@ -63,6 +83,7 @@ def do_train(
         if extensions_config["controls"]["active"]
         else None
     )
+
     val_dataset = TTSDataset(
         filenames=val_df.wav,
         texts=val_df.text,
