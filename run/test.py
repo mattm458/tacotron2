@@ -66,7 +66,9 @@ def do_test(
         filenames=test_df.wav,
         texts=test_df.text,
         base_dir=speech_dir,
-        speaker_ids=test_df.speaker_id if extensions_config["speaker_id"] else None,
+        speaker_ids=test_df.speaker_id
+        if extensions_config["speaker_tokens"]["active"]
+        else None,
         features=test_features,
         **dataset_config["preprocessing"],
         include_text=True,
@@ -99,18 +101,8 @@ def do_test(
         **model_config["args"],
     )
 
-    trainer = Trainer(
-        logger=None,
-        devices=[device],
-        accelerator="gpu",
-        gradient_clip_val=1.0,
-        check_val_every_n_epoch=1,
-    )
-
-    results = trainer.predict(
-        model,
-        dataloaders=test_dataloader,
-    )
+    trainer = Trainer(logger=False, devices=[device], accelerator="gpu")
+    results = trainer.predict(model, dataloaders=test_dataloader)
 
     del model
 
