@@ -13,6 +13,7 @@ from lightning.pytorch.loggers import TensorBoardLogger
 from datasets.tts_dataloader import TTSDataLoader
 from datasets.tts_dataset import TTSDataset
 from model.tts_model import TTSModel
+from prosody_modeling.model.lightning import ProsodyModelLightning
 
 
 def do_train(
@@ -24,6 +25,7 @@ def do_train(
     speech_dir: str,
     results_dir: Optional[str] = None,
     resume_ckpt: Optional[str] = None,
+    prosody_model_checkpoint: Optional[str] = None,
 ):
     if results_dir is None:
         results_dir = f"results_{training_config['name']} {datetime.datetime.now()}"
@@ -111,6 +113,32 @@ def do_train(
         speaker_tokens = True
         num_speakers = extensions_config["speaker_tokens"]["num_speakers"]
 
+    if extensions_config["prosody_model"]["active"]:
+        if prosody_model_checkpoint is None:
+            raise Exception(
+                "Prosody model extension is active, but no prosody model checkpoint was given!"
+            )
+
+        prosody_model = ProsodyModelLightning.load_from_checkpoint(
+            prosody_model_checkpoint
+        ).prosody_predictor
+
+        for param in prosody_model.parameters():
+            param.requires_grad = False
+
+        prosody_model_after = int(
+            training_config["args"]["max_steps"]
+            * extensions_config["prosody_model"]["active_after"]
+        )
+
+        model_config["args"]["prosody_model"] = prosody_model
+        model_config["args"]["prosody_model_after"] = prosody_model_after
+
+    scheduler_milestones = [
+        int(x * training_config["args"]["max_steps"])
+        for x in model_config["scheduler_milestones"]
+    ]
+
     model = TTSModel(
         lr=training_config["lr"],
         weight_decay=training_config["weight_decay"],
@@ -121,6 +149,7 @@ def do_train(
         controls_dim=controls_dim,
         speaker_tokens=speaker_tokens,
         num_speakers=num_speakers,
+        scheduler_milestones=scheduler_milestones,
         **model_config["args"],
     )
 
