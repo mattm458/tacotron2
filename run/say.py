@@ -56,7 +56,7 @@ def do_say(
         generator.load_state_dict(hifi_gan_states)
         generator.remove_weight_norm()
         generator.eval()
-        generator = generator.cuda(0)
+        generator = generator.cuda(device)
 
     controls = False
     controls_dim = 0
@@ -64,6 +64,11 @@ def do_say(
     if extensions_config["controls"]["active"]:
         controls = True
         controls_dim = len(extensions_config["controls"]["features"])
+
+    scheduler_milestones = [
+        int(x * training_config["args"]["max_steps"])
+        for x in model_config["scheduler_milestones"]
+    ]
 
     model = TTSModel.load_from_checkpoint(
         checkpoint,
@@ -74,6 +79,7 @@ def do_say(
         num_mels=dataset_config["preprocessing"]["num_mels"],
         controls=controls,
         controls_dim=controls_dim,
+        scheduler_milestones=scheduler_milestones,
         **model_config["args"],
         map_location="cpu",
     ).cpu()
@@ -84,8 +90,9 @@ def do_say(
             chars_idx=chars_idx,
             chars_idx_len=chars_idx_len,
             teacher_forcing=False,
+            speaker_id=torch.LongTensor([3]),
             #            speaker_id=torch.LongTensor([speaker_id]),
-            #            controls=torch.tensor([[0, 0, 0, 0, 0, 0, 0]]),
+            controls=torch.tensor([[0, 0, 0, 0, 0]]),
             max_len_override=5000,
         )
 
@@ -93,7 +100,7 @@ def do_say(
 
     if generator:
         with torch.no_grad():
-            wav = generator(mel_spectrogram_post[:, :-1].cuda(0))[0].cpu()
+            wav = generator(mel_spectrogram_post[:, :-1].cuda(device))[0].cpu()
     else:
         this_mel_spectrogram = mel_spectrogram_post[0, :-1]
         mel_spectrogram_post = np.exp(this_mel_spectrogram.numpy())
