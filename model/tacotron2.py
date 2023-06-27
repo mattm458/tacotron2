@@ -1,6 +1,5 @@
 from typing import List, Optional, Tuple
 
-import lightning as pl
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
@@ -157,7 +156,7 @@ class Tacotron2(nn.Module):
         ), "Controls are enabled, but no control vector was passed to the model!"
 
         assert self.controls or (
-            not self.controls and not controls
+            not self.controls and controls is None
         ), "Controls are disabled, but a control vector was passed to the model!"
 
         device = chars_idx.device
