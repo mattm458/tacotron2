@@ -9,6 +9,7 @@ from run.say import do_say
 from run.test import do_test
 from run.test_correlation import do_test_correlation
 from run.train import do_train
+from run.train_mel_export import do_train_mel_export
 
 
 @click.group()
@@ -58,11 +59,18 @@ def main(ctx: Context, config: str, device: int):
     type=str,
     help="Resume training from the given checkpoint.",
 )
+@click.option(
+    "--prosody-model-checkpoint",
+    required=False,
+    type=str,
+    help="A prosody model checkpoint. If specified, the model will be used as an objective in the second half of training.",
+)
 def train(
     ctx: Context,
     speech_dir: str,
     results_dir: Optional[str] = None,
     resume_ckpt: Optional[str] = None,
+    prosody_model_checkpoint: Optional[str] = None,
 ):
     if ctx.obj["config"] is None:
         raise Exception("Configuration required for training!")
@@ -76,6 +84,47 @@ def train(
         speech_dir=speech_dir,
         results_dir=results_dir,
         resume_ckpt=resume_ckpt,
+        prosody_model_checkpoint=prosody_model_checkpoint,
+    )
+
+
+@main.command()
+@click.pass_context
+@click.option(
+    "--speech-dir",
+    required=True,
+    type=str,
+    help="A directory containing audio files from the dataset.",
+)
+@click.option(
+    "--checkpoint",
+    required=True,
+    type=str,
+    help="Resume training from the given checkpoint.",
+)
+@click.option(
+    "--results-dir",
+    required=False,
+    type=str,
+    help="The directory to save results. Defaults to the model configuration name with a timestamp.",
+)
+def train_mel_export(
+    ctx: Context,
+    speech_dir: str,
+    checkpoint: str,
+    results_dir: Optional[str] = None,
+):
+    if ctx.obj["config"] is None:
+        raise Exception("Configuration required!")
+
+    do_train_mel_export(
+        dataset_config=ctx.obj["config"]["dataset"],
+        training_config=ctx.obj["config"]["training"],
+        model_config=ctx.obj["config"]["model"],
+        extensions_config=ctx.obj["config"]["extensions"],
+        device=ctx.obj["device"],
+        speech_dir=speech_dir,
+        checkpoint=checkpoint,
     )
 
 

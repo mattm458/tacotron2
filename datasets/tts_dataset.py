@@ -63,6 +63,7 @@ class TTSDataset(Dataset):
         expand_abbreviations=False,
         include_wav=False,
         include_text=False,
+        include_filename=False,
         num_frames_per_step: int = 1,
         num_mels: int = 80,
         cache=False,
@@ -93,6 +94,7 @@ class TTSDataset(Dataset):
 
         self.include_wav = include_wav
         self.include_text = include_text
+        self.include_filename = include_filename
 
         self.num_frames_per_step = num_frames_per_step
 
@@ -162,16 +164,16 @@ class TTSDataset(Dataset):
         mel_spectrogram_cached = False
         cache_path = None
 
+        filename = self.filenames[i]
+
         if self.cache:
-            cache_path = path.join(
-                self.cache_dir, f"{self.filenames[i].replace('/', '_')}.pt"
-            )
+            cache_path = path.join(self.cache_dir, f"{filename.replace('/', '_')}.pt")
             if path.exists(cache_path):
                 mel_spectrogram = torch.load(cache_path)
                 mel_spectrogram_cached = True
 
         if not mel_spectrogram_cached:
-            wav, _ = torchaudio.load(path.join(self.base_dir, self.filenames[i]))
+            wav, _ = torchaudio.load(path.join(self.base_dir, filename))
             wav = wav.squeeze(0)
 
             if self.trim:
@@ -223,6 +225,8 @@ class TTSDataset(Dataset):
 
         if self.include_text:
             out_extra["text"] = text
+        if self.include_filename:
+            out_extra["filename"] = filename
 
         if self.speaker_ids is not None:
             out_metadata["speaker_id"] = torch.IntTensor([self.speaker_ids[i]])
