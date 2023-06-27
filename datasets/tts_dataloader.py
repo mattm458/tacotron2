@@ -39,32 +39,20 @@ def TTSDataLoader(
     dataset,
     batch_size=1,
     num_workers=0,
-    pin_memory=None,
+    pin_memory=False,
+    pin_memory_device="",
     shuffle=None,
     prefetch_factor=2,
     persistent_workers=False,
     drop_last=True,
 ):
-    """Create a new DataLoader for TTS data.
-
-    Args:
-        dataset -- a TTSDataset object
-        batch_size -- how many samples per batch to load (default 1)
-        num_workers -- how many subprocesses to use for data loading. 0 means that the data will be
-                       loaded in the main process (default 0)
-        pin_memory -- if True, the data loader will copy Tensors into CUDA pinned memory before
-                      returning them (default False)
-        shuffle -- set to True to have data reshuffled at every epoch (default False)
-        prefetch_factor -- number of samples loaded in advance by each worker. 2 means that there
-                           will be a total of 2 * num_workers samples prefetched across all
-                           workers (default 2)
-    """
     return DataLoader(
         dataset,
         batch_size=batch_size,
         collate_fn=_collate if batch_size > 1 else None,
         num_workers=num_workers,
         pin_memory=pin_memory,
+        pin_memory_device=pin_memory_device,
         shuffle=shuffle,
         prefetch_factor=prefetch_factor,
         persistent_workers=persistent_workers,
