@@ -334,5 +334,17 @@ def preprocess(
         raise NotImplementedError(f"Preprocessing for {dataset} not implemented!")
 
 
+@main.command()
+@click.pass_context
+@click.option("--port", required=False, type=int, default=8080, help="The server port.")
+def server(ctx: Context, port: int):
+    if ctx.obj["config"] is None:
+        raise Exception("A server configuration is required!")
+
+    from run.server import do_server
+
+    do_server(port)
+
+
 if __name__ == "__main__":
     main(obj={})
