@@ -57,8 +57,8 @@ def do_train(
                 )
 
         force_speaker_id = extensions_config["speaker_tokens"]["force_speaker"]
-        train_df = train_df[train_df.speaker_id == force_speaker_id]
-        val_df = val_df[val_df.speaker_id == force_speaker_id]
+        train_df = train_df[train_df.speaker_id == force_speaker_id].reset_index(drop=True)
+        val_df = val_df[val_df.speaker_id == force_speaker_id].reset_index(drop=True)
 
     train_features = (
         train_df[extensions_config["controls"]["features"]].values.tolist()

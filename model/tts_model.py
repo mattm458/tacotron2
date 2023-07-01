@@ -1,10 +1,11 @@
-from typing import Dict, Optional, Tuple
+from typing import List, Optional
 
 import lightning as pl
 import matplotlib
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
+from prosody_modeling.model.prosody_model import ProsodyModel
 from torch import Tensor
 from torch.nn import functional as F
 
@@ -28,11 +29,14 @@ class TTSModel(pl.LightningModule):
         rnn_hidden_dim: int,
         postnet_dim: int,
         dropout: float,
+        scheduler_milestones: List[int],
         speaker_tokens: bool = False,
         num_speakers: int = 1,
         controls: bool = False,
         controls_dim: int = 0,
         max_len_override: Optional[int] = None,
+        prosody_model: Optional[ProsodyModel] = None,
+        prosody_model_after: int = 0,
     ):
         super().__init__()
 
@@ -40,9 +44,13 @@ class TTSModel(pl.LightningModule):
 
         self.lr = lr
         self.weight_decay = weight_decay
+        self.scheduler_milestones = scheduler_milestones
         self.speaker_tokens = speaker_tokens
         self.controls = controls
         self.max_len_override = max_len_override
+
+        self.prosody_model = prosody_model
+        self.prosody_model_after = prosody_model_after
 
         self.tacotron2 = Tacotron2(
             num_chars=num_chars,
@@ -63,12 +71,12 @@ class TTSModel(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
-            self.parameters(), lr=self.lr, weight_decay=self.weight_decay
+            self.tacotron2.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
         optimizer_config = {"optimizer": optimizer}
 
         scheduler = torch.optim.lr_scheduler.MultiStepLR(
-            optimizer, milestones=[50_000, 75_000], gamma=0.1
+            optimizer, milestones=self.scheduler_milestones, gamma=0.1
         )
         lr_scheduler_config = {"scheduler": scheduler, "interval": "step"}
         optimizer_config["lr_scheduler"] = lr_scheduler_config
@@ -152,6 +160,14 @@ class TTSModel(pl.LightningModule):
         if self.controls:
             args["controls"] = tts_metadata["features"]
 
+        if (
+            self.prosody_model is not None
+            and self.global_step >= self.prosody_model_after
+        ):
+            _, low, mid, high = self.prosody_model(
+                tts_data["mel_spectrogram"], tts_metadata["mel_spectrogram_len"]
+            )
+
         mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
             chars_idx=tts_data["chars_idx"],
             chars_idx_len=tts_metadata["chars_idx_len"],
@@ -170,6 +186,29 @@ class TTSModel(pl.LightningModule):
         tacotron_loss = gate_loss + mel_loss + mel_post_loss
         loss = tacotron_loss
 
+        if (
+            self.prosody_model is not None
+            and self.global_step >= self.prosody_model_after
+        ):
+            _, low_pred, mid_pred, high_pred = self.prosody_model(
+                mel_spectrogram_post, tts_metadata["mel_spectrogram_len"]
+            )
+
+            style_loss = (
+                F.mse_loss(low_pred, low)
+                + F.mse_loss(mid_pred, mid)
+                + F.mse_loss(high_pred, high)
+            )
+
+            self.log(
+                "training_style_loss",
+                style_loss.detach(),
+                on_step=True,
+                on_epoch=True,
+            )
+
+            loss += style_loss
+
         self.log(
             "training_gate_loss",
             gate_loss.detach(),
@@ -186,6 +225,12 @@ class TTSModel(pl.LightningModule):
         self.log(
             "training_tacotron_loss",
             tacotron_loss.detach(),
+            on_step=True,
+            on_epoch=True,
+        )
+        self.log(
+            "training_loss",
+            loss.detach(),
             on_step=True,
             on_epoch=True,
         )
