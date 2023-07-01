@@ -16,15 +16,6 @@ from pqdm.processes import pqdm
 from sklearn.preprocessing import OrdinalEncoder
 from speech_utils.preprocessing.feature_extraction import extract_features
 
-from consts import (
-    FEATURES_ALL,
-    FEATURES_ALL_DATASET_NORM,
-    FEATURES_ALL_DATASET_NORM_CLIP,
-    FEATURES_ALL_SPEAKER_NORM,
-    FEATURES_ALL_SPEAKER_NORM_CLIP,
-)
-from preprocessing.utils import normalize
-
 
 def __load_set(base_dir: str, set: str):
     df = []
@@ -102,16 +93,18 @@ def __do_preprocess(
         trimmed, _ = librosa.effects.trim(wav, top_db=trim_top_db)
         os.makedirs(path.dirname(trimmed_out_filepath), exist_ok=True)
         sf.write(file=trimmed_out_filepath, data=trimmed, samplerate=sr)
+
         filepath = trimmed_filepath
 
     extracted_features = extract_features(
         wavfile=path.join(speech_dir, filepath), transcript=row.text_normalized
     )
 
-    extracted_features["speaker_id"] = int(row.speaker_id)
+
+    extracted_features["speaker_id_dataset"] = int(row.speaker_id)
     extracted_features["text"] = row.text_normalized
 
-    extracted_features["wav"] = resampled_filepath
+    extracted_features["wav"] = filepath
 
     return extracted_features
 
@@ -135,15 +128,6 @@ def __set_preprocess(
     results = [x for x in results if isinstance(x, dict)]
     results_df = pd.DataFrame(results)
 
-    results_df[FEATURES_ALL_DATASET_NORM] = normalize(
-        results_df[FEATURES_ALL],
-        results_df[FEATURES_ALL].median(),
-        results_df[FEATURES_ALL].std(),
-    ).values
-    results_df[FEATURES_ALL_DATASET_NORM_CLIP] = results_df[
-        FEATURES_ALL_DATASET_NORM
-    ].clip(-1, 1)
-
     return results_df
 
 
@@ -153,14 +137,8 @@ def do_preprocess(
     out_postfix: str,
     n_jobs: int,
     trim: bool,
-    trim_top_db: bool,
-    split: bool,
-    val_size: Optional[int],
-    test_size: Optional[int],
-    random_state: int,
+    trim_top_db: float,
 ):
-    assert not split, "Splitting not supported in HiFi-TTS"
-
     # First preprocess the training data
     train_df = __set_preprocess(speech_dir, "train", n_jobs, trim, trim_top_db)
     val_df = __set_preprocess(speech_dir, "dev", n_jobs, trim, trim_top_db)
@@ -169,53 +147,19 @@ def do_preprocess(
     # Create an ordinal encoder to transform the speaker IDs from large, arbitrary
     # numbers into 0-indexed numbers
     id_encoder = OrdinalEncoder(dtype=np.int64)
-    train_df.speaker_id = id_encoder.fit_transform(
-        train_df.speaker_id.values.reshape(-1, 1)
+    train_df["speaker_id"] = id_encoder.fit_transform(
+        train_df.speaker_id_dataset.values.reshape(-1, 1)
     ).squeeze()
 
     # Transform the dev and test speaker IDs
-    val_df.speaker_id = id_encoder.transform(
-        val_df.speaker_id.values.reshape(-1, 1)
+    val_df["speaker_id"] = id_encoder.transform(
+        val_df.speaker_id_dataset.values.reshape(-1, 1)
     ).squeeze()
-    test_df.speaker_id = id_encoder.transform(
-        test_df.speaker_id.values.reshape(-1, 1)
+    test_df["speaker_id"] = id_encoder.transform(
+        test_df.speaker_id_dataset.values.reshape(-1, 1)
     ).squeeze()
 
     for set_df, set_name in zip([train_df, val_df, test_df], ["train", "val", "test"]):
-        set_df = set_df.copy()
-
-        # Dataset-level normalization:
-        # Normalize feature values by the median and standard deviation of all
-        # features in the dataset.
-        set_df[FEATURES_ALL_DATASET_NORM] = normalize(
-            set_df[FEATURES_ALL],
-            train_df[FEATURES_ALL].median(),
-            train_df[FEATURES_ALL].std(),
-        ).values
-        set_df[FEATURES_ALL_DATASET_NORM_CLIP] = set_df[FEATURES_ALL_DATASET_NORM].clip(
-            -1, 1
-        )
-
-        # Speaker-level normalization:
-        # Normalize feature values by the median and standard deviation of each
-        # speaker individually.
-        speaker_normalized = []
-        for speaker_id, group in set_df.groupby("speaker_id"):
-            speaker_norm = normalize(
-                group[FEATURES_ALL],
-                train_df.loc[train_df.speaker_id == speaker_id, FEATURES_ALL].median(),
-                train_df.loc[train_df.speaker_id == speaker_id, FEATURES_ALL].std(),
-            )
-            speaker_norm.columns = FEATURES_ALL_SPEAKER_NORM
-            speaker_normalized.append(speaker_norm)
-
-        speaker_normalized_df = pd.concat(speaker_normalized, axis=0)
-        set_df = pd.concat([set_df, speaker_normalized_df], axis=1)
-
-        set_df[FEATURES_ALL_SPEAKER_NORM_CLIP] = set_df[FEATURES_ALL_SPEAKER_NORM].clip(
-            -1, 1
-        )
-
         set_df.to_csv(
             path.join(out_dir, f"hifi-tts-{set_name}-{out_postfix}.csv"),
             sep="|",

@@ -2,26 +2,14 @@ import csv
 import os
 from functools import partial
 from os import path
-from typing import Optional, Tuple
+from typing import Tuple
 
 import librosa
-import numpy as np
 import pandas as pd
-import parselmouth
 import soundfile as sf
 from pandas import Series
 from pqdm.processes import pqdm
-from sklearn.model_selection import train_test_split
 from speech_utils.preprocessing.feature_extraction import extract_features
-
-from consts import (
-    FEATURES_ALL,
-    FEATURES_ALL_DATASET_NORM,
-    FEATURES_ALL_DATASET_NORM_CLIP,
-    FEATURES_ALL_SPEAKER_NORM,
-    FEATURES_ALL_SPEAKER_NORM_CLIP,
-)
-from preprocessing.utils import normalize
 
 
 def __do_preprocess(
@@ -67,7 +55,7 @@ def do_preprocess(
     out_postfix: str,
     n_jobs: int,
     trim: bool,
-    trim_top_db: bool,
+    trim_top_db: float,
 ):
     # Load the LJSpeech metadata
     df = pd.read_csv(
