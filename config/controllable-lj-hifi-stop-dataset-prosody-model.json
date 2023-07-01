@@ -14,19 +14,23 @@
     }
   },
   "training": {
-    "lr": 0.001,
-    "batch_size": 64,
+    "lr": 0.0005,
+    "batch_size": 32,
     "weight_decay": 0.000001,
     "precision": "16-mixed",
-    "name": "vanilla-lj-hifi-stop",
+    "name": "controllable-lj-hifi-stop-dataset-prosody-model",
     "float32_matmul_precision": "high",
     "stopping_val_loss_threshold": null,
     "args": {
-      "val_check_interval": 0.125,
-      "max_steps": 100000
+      "val_check_interval": 0.0625,
+      "max_steps": 200000
     }
   },
   "model": {
+    "scheduler_milestones": [
+      0.5,
+      0.75
+    ],
     "args": {
       "prenet_dim": 256,
       "att_rnn_dim": 1024,
@@ -39,12 +43,23 @@
     }
   },
   "extensions": {
+    "prosody_model": {
+      "active": true,
+      "active_after": 0.5
+    },
     "speaker_tokens": {
       "active": true,
       "num_speakers": 4
     },
     "controls": {
-      "active": false
+      "active": true,
+      "features": [
+        "pitch_mean_log_dataset_norm_clip",
+        "pitch_range_log_dataset_norm_clip",
+        "intensity_mean_vcd_dataset_norm_clip",
+        "nhr_vcd_dataset_norm_clip",
+        "rate_dataset_norm_clip"
+      ]
     }
   }
 }

@@ -18,7 +18,7 @@
     "batch_size": 64,
     "weight_decay": 0.000001,
     "precision": "16-mixed",
-    "name": "vanilla-lj-hifi-stop",
+    "name": "controllable-lj-hifi-stop-dataset",
     "float32_matmul_precision": "high",
     "stopping_val_loss_threshold": null,
     "args": {
@@ -44,7 +44,14 @@
       "num_speakers": 4
     },
     "controls": {
-      "active": false
+      "active": true,
+      "features": [
+        "pitch_mean_log_dataset_norm_clip",
+        "pitch_range_log_dataset_norm_clip",
+        "intensity_mean_vcd_dataset_norm_clip",
+        "nhr_vcd_dataset_norm_clip",
+        "rate_dataset_norm_clip"
+      ]
     }
   }
 }

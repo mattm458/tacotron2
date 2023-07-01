@@ -18,15 +18,18 @@
     "batch_size": 64,
     "weight_decay": 0.000001,
     "precision": "16-mixed",
-    "name": "vanilla-lj-hifi-stop",
+    "name": "controllable-lj-hifi-stop-speaker-2",
     "float32_matmul_precision": "high",
     "stopping_val_loss_threshold": null,
     "args": {
-      "val_check_interval": 0.125,
       "max_steps": 100000
     }
   },
   "model": {
+    "scheduler_milestones": [
+      0.5,
+      0.75
+    ],
     "args": {
       "prenet_dim": 256,
       "att_rnn_dim": 1024,
@@ -39,12 +42,22 @@
     }
   },
   "extensions": {
+    "prosody_model": {
+      "active": false
+    },
     "speaker_tokens": {
-      "active": true,
-      "num_speakers": 4
+      "active": false,
+      "force_speaker": 2
     },
     "controls": {
-      "active": false
+      "active": true,
+      "features": [
+        "pitch_mean_log_speaker_norm_clip",
+        "pitch_range_log_speaker_norm_clip",
+        "intensity_mean_vcd_speaker_norm_clip",
+        "nhr_vcd_speaker_norm_clip",
+        "rate_speaker_norm_clip"
+      ]
     }
   }
 }
