@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import torch
 from torch import Tensor, nn
@@ -6,7 +6,7 @@ from torch.nn import functional as F
 
 from model.decoder import Decoder
 from model.encoder import Encoder
-from model.modules_v2 import AlwaysDropout
+from model.modules import AlwaysDropout
 from model.postnet import Postnet
 
 
