@@ -142,6 +142,20 @@ def train_mel_export(
     help="Name of a .wav file to output. Default: out.wav",
 )
 @click.option(
+    "--hifi-gan-checkpoint",
+    required=False,
+    type=str,
+    default=None,
+    help="A trained HiFi-GAN model checkpoint",
+)
+@click.option(
+    "--random-seed",
+    required=False,
+    type=int,
+    default=None,
+    help="A random seed to use in generation. If not given, a seed will be randomly chosen.",
+)
+@click.option(
     "--speaker-id",
     required=False,
     type=int,
@@ -149,11 +163,11 @@ def train_mel_export(
     help="A speaker ID to use in inference if using a multi-speaker model",
 )
 @click.option(
-    "--hifi-gan-checkpoint",
+    "--controls",
     required=False,
     type=str,
     default=None,
-    help="A trained HiFi-GAN model checkpoint",
+    help="If controls are enabled, a comma-separated list of values to pass into the model. Defaults to all 0 values.",
 )
 def say(
     ctx: Context,
@@ -162,6 +176,8 @@ def say(
     out: str,
     speaker_id: Optional[int],
     hifi_gan_checkpoint: Optional[str],
+    random_seed: Optional[int],
+    controls: Optional[str],
 ):
     if ctx.obj["config"] is None:
         raise Exception("Configuration required for speech!")
@@ -177,6 +193,8 @@ def say(
         output=out,
         speaker_id=speaker_id,
         hifi_gan_checkpoint=hifi_gan_checkpoint,
+        random_seed=random_seed,
+        controls=controls,
     )
 
 

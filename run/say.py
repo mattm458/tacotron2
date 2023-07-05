@@ -1,14 +1,23 @@
-from typing import Optional
+import json
+import re
+from typing import List, Optional
 
 import librosa
 import numpy as np
 import soundfile as sf
 import torch
-from hifi_gan.model.generator import Generator
-from matplotlib import pyplot as plt
+import unidecode
 from sklearn.preprocessing import OrdinalEncoder
+from torch import Tensor
 
+from model.hifi_gan import Generator
 from model.tts_model import TTSModel
+
+
+class AttrDict(dict):
+    def __init__(self, *args, **kwargs):
+        super(AttrDict, self).__init__(*args, **kwargs)
+        self.__dict__ = self
 
 
 def do_say(
@@ -20,9 +29,15 @@ def do_say(
     checkpoint: str,
     text: str,
     output: str,
-    speaker_id: Optional[int],
     hifi_gan_checkpoint: Optional[str],
+    random_seed: Optional[int],
+    speaker_id: Optional[int],
+    controls: Optional[str],
+    export_mel: bool = True,
 ):
+    if random_seed is not None:
+        torch.manual_seed(random_seed)
+
     end_token = dataset_config["preprocessing"]["end_token"]
     allowed_chars = dataset_config["preprocessing"]["allowed_chars"]
 
@@ -31,9 +46,14 @@ def do_say(
         encoder.fit([[x] for x in list(allowed_chars)])
     else:
         encoder.fit([[x] for x in list(allowed_chars) + [end_token]])
-        text = text + end_token
 
-    chars_idx = encoder.transform([[x] for x in text.lower()]) + 1
+    allowed_chars_re = re.compile(f"[^{allowed_chars}]+")
+    text = allowed_chars_re.sub("", unidecode.unidecode(text).lower())
+
+    if end_token is not None:
+        text += end_token
+
+    chars_idx = encoder.transform([[x] for x in text]) + 1
     chars_idx = torch.tensor(chars_idx, dtype=torch.int64).unsqueeze(0).squeeze(-1)
     chars_idx_len = torch.tensor([chars_idx.shape[1]], dtype=torch.int64)
 
@@ -51,19 +71,33 @@ def do_say(
             [(k[10:], v) for k, v in hifi_gan_states.items() if "generator" in k]
         )
 
-        generator = Generator()
-        generator.weight_norm()
-        generator.load_state_dict(hifi_gan_states)
+        with open("web_checkpoints/hifi-gan/UNIVERSAL_V1/config.json", "r") as infile:
+            generator_config = AttrDict(json.load(infile))
+
+        generator_state_dict = torch.load(
+            "web_checkpoints/hifi-gan/UNIVERSAL_V1/g_02500000",
+            map_location=f"cuda:{device}",
+        )
+
+        print(generator_config)
+        generator = Generator(generator_config)
+        generator.load_state_dict(generator_state_dict["generator"])
+
         generator.remove_weight_norm()
         generator.eval()
         generator = generator.cuda(device)
 
-    controls = False
-    controls_dim = 0
+    # Handle optional speaker ID
+    speaker_tensor: Optional[Tensor] = None
+    if extensions_config["speaker_tokens"]["active"]:
+        speaker_tensor = torch.LongTensor([speaker_id])
 
-    if extensions_config["controls"]["active"]:
-        controls = True
+    # Handle optional model controls
+    controls_dim = 0
+    controls_tensor: Optional[Tensor] = None
+    if extensions_config["controls"]["active"] and controls:
         controls_dim = len(extensions_config["controls"]["features"])
+        controls_tensor = torch.Tensor([[float(x) for x in controls.split(",")]])
 
     scheduler_milestones = [
         int(x * training_config["args"]["max_steps"])
@@ -90,9 +124,8 @@ def do_say(
             chars_idx=chars_idx,
             chars_idx_len=chars_idx_len,
             teacher_forcing=False,
-            speaker_id=torch.LongTensor([3]),
-            #            speaker_id=torch.LongTensor([speaker_id]),
-            controls=torch.tensor([[0, 0, 0, 0, 0]]),
+            speaker_id=speaker_tensor,
+            controls=controls_tensor,
             max_len_override=5000,
         )
 
@@ -100,13 +133,14 @@ def do_say(
 
     if generator:
         with torch.no_grad():
-            wav = generator(mel_spectrogram_post[:, :-1].cuda(device))[0].cpu()
+            wav = generator(mel_spectrogram_post[:, :-1].cuda(device).swapaxes(1, 2))[
+                0
+            ].cpu()[0]
     else:
         this_mel_spectrogram = mel_spectrogram_post[0, :-1]
-        mel_spectrogram_post = np.exp(this_mel_spectrogram.numpy())
 
         wav = librosa.feature.inverse.mel_to_audio(
-            mel_spectrogram_post.T,
+            np.exp(this_mel_spectrogram.numpy()).T,
             sr=22050,
             n_fft=1024,
             hop_length=256,
@@ -117,4 +151,10 @@ def do_say(
             fmax=8000,
         )
 
-    sf.write(output, wav, 22050)
+    sf.write(output, wav, samplerate=22050)
+
+    if export_mel:
+        if generator:
+            np.save(output, mel_spectrogram_post.numpy().T)
+        else:
+            np.save(output, mel_spectrogram_post.T)
