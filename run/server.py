@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import uuid
 from typing import List
@@ -131,6 +132,9 @@ async def generate(request):
 
     filename_wav = filename + ".wav"
     filename_metadata = filename + ".json"
+
+    with open(filename_metadata, "w") as metadata_json:
+        json.dump(data, metadata_json, indent=4)
 
     text = data["text"].translate(
         str.maketrans(
