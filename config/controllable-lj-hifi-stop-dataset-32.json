@@ -22,8 +22,8 @@
     "float32_matmul_precision": "high",
     "stopping_val_loss_threshold": null,
     "args": {
-      "val_check_interval": 0.125,
-      "max_steps": 100000
+      "val_check_interval": 0.0625,
+      "max_steps": 200000
     }
   },
   "model": {

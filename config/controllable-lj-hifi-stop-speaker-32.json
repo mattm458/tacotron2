@@ -18,7 +18,7 @@
     "batch_size": 32,
     "weight_decay": 0.000001,
     "precision": "16-mixed",
-    "name": "controllable-lj-hifi-stop-gender-32",
+    "name": "controllable-lj-hifi-stop-speaker",
     "float32_matmul_precision": "high",
     "stopping_val_loss_threshold": null,
     "args": {
@@ -53,11 +53,11 @@
     "controls": {
       "active": true,
       "features": [
-        "pitch_mean_log_dataset_gender_norm_clip",
-        "pitch_range_log_dataset_gender_norm_clip",
-        "intensity_mean_vcd_dataset_gender_norm_clip",
-        "nhr_vcd_dataset_gender_norm_clip",
-        "rate_dataset_gender_norm_clip"
+        "pitch_mean_log_speaker_norm_clip",
+        "pitch_range_log_speaker_norm_clip",
+        "intensity_mean_vcd_speaker_norm_clip",
+        "nhr_vcd_speaker_norm_clip",
+        "rate_speaker_norm_clip"
       ]
     }
   }
