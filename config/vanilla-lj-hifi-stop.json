@@ -27,6 +27,10 @@
     }
   },
   "model": {
+    "scheduler_milestones": [
+      0.5,
+      0.75
+    ],
     "args": {
       "prenet_dim": 256,
       "att_rnn_dim": 1024,

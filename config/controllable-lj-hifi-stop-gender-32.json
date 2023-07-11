@@ -1,27 +1,28 @@
 {
   "dataset": {
-    "train": "data/ljspeech-train.csv",
-    "test": "data/ljspeech-test.csv",
-    "val": "data/ljspeech-val.csv",
+    "train": "data/lj-hifi-train.csv",
+    "test": "data/lj-hifi-test.csv",
+    "val": "data/lj-hifi-val.csv",
     "preprocessing": {
       "allowed_chars": "!'(),.:;? \\-abcdefghijklmnopqrstuvwxyz",
       "expand_abbreviations": true,
       "end_token": "^",
-      "silence": 512,
+      "silence": 0,
       "trim": false,
       "num_mels": 80,
       "cache": true
     }
   },
   "training": {
-    "lr": 0.001,
-    "batch_size": 64,
+    "lr": 0.0005,
+    "batch_size": 32,
     "weight_decay": 0.000001,
     "precision": "16-mixed",
-    "name": "vanilla-ljspeech-stop",
+    "name": "controllable-lj-hifi-stop-gender-32",
     "float32_matmul_precision": "high",
     "stopping_val_loss_threshold": null,
     "args": {
+      "val_check_interval": 0.125,
       "max_steps": 100000
     }
   },
@@ -38,16 +39,26 @@
       "postnet_dim": 512,
       "dropout": 0.5,
       "char_embedding_dim": 512,
-      "encoder_kernel_size": 5,
-      "speaker_tokens": false
+      "encoder_kernel_size": 5
     }
   },
   "extensions": {
-    "speaker_tokens": {
+    "prosody_model": {
       "active": false
     },
+    "speaker_tokens": {
+      "active": true,
+      "num_speakers": 4
+    },
     "controls": {
-      "active": false
+      "active": true,
+      "features": [
+        "pitch_mean_log_dataset_gender_norm_clip",
+        "pitch_range_log_dataset_gender_norm_clip",
+        "intensity_mean_vcd_dataset_gender_norm_clip",
+        "nhr_vcd_dataset_gender_norm_clip",
+        "rate_dataset_gender_norm_clip"
+      ]
     }
   }
 }
