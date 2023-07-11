@@ -64,12 +64,12 @@ def do_say(
         assert hifi_gan_checkpoint, "You must give a checkpoint if using HiFi-GAN"
 
         print(f"Loading HiFi-GAN checkpoint {hifi_gan_checkpoint}...")
-        hifi_gan_states = torch.load(hifi_gan_checkpoint, map_location="cpu")[
-            "state_dict"
-        ]
-        hifi_gan_states = dict(
-            [(k[10:], v) for k, v in hifi_gan_states.items() if "generator" in k]
-        )
+        # hifi_gan_states = torch.load(hifi_gan_checkpoint, map_location="cpu")[
+        #     "state_dict"
+        # ]
+        # hifi_gan_states = dict(
+        #     [(k[10:], v) for k, v in hifi_gan_states.items() if "generator" in k]
+        # )
 
         with open("web_checkpoints/hifi-gan/UNIVERSAL_V1/config.json", "r") as infile:
             generator_config = AttrDict(json.load(infile))
