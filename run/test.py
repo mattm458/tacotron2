@@ -1,5 +1,6 @@
 import csv
 import datetime
+import json
 import logging
 import os
 from os import path
@@ -10,13 +11,19 @@ import numpy as np
 import pandas as pd
 import soundfile as sf
 import torch
-from hifi_gan.model.generator import Generator
 from lightning import Trainer
 from tqdm import tqdm
 
 from datasets.tts_dataloader import TTSDataLoader
 from datasets.tts_dataset import TTSDataset
+from model.hifi_gan import Generator
 from model.tts_model import TTSModel
+
+
+class AttrDict(dict):
+    def __init__(self, *args, **kwargs):
+        super(AttrDict, self).__init__(*args, **kwargs)
+        self.__dict__ = self
 
 
 def do_test(
@@ -35,17 +42,33 @@ def do_test(
     if use_hifi_gan:
         assert hifi_gan_checkpoint, "You must give a checkpoint if using HiFi-GAN"
 
-        logging.info(f"Loading HiFi-GAN checkpoint {hifi_gan_checkpoint}...")
-        hifi_gan_states = torch.load(
-            hifi_gan_checkpoint, map_location=torch.device("cpu")
-        )["state_dict"]
-        hifi_gan_states = dict(
-            [(k[10:], v) for k, v in hifi_gan_states.items() if "generator" in k]
+        # logging.info(f"Loading HiFi-GAN checkpoint {hifi_gan_checkpoint}...")
+        # hifi_gan_states = torch.load(
+        #     hifi_gan_checkpoint, map_location=torch.device("cpu")
+        # )["state_dict"]
+        # hifi_gan_states = dict(
+        #     [(k[10:], v) for k, v in hifi_gan_states.items() if "generator" in k]
+        # )
+
+        # generator = Generator()
+        # generator.weight_norm()
+        # generator.load_state_dict(hifi_gan_states)
+        # generator.remove_weight_norm()
+        # generator.eval()
+        # generator = generator.cuda(device)
+
+        with open("web_checkpoints/hifi-gan/UNIVERSAL_V1/config.json", "r") as infile:
+            generator_config = AttrDict(json.load(infile))
+
+        generator_state_dict = torch.load(
+            "web_checkpoints/hifi-gan/UNIVERSAL_V1/g_02500000",
+            map_location=f"cuda:{device}",
         )
 
-        generator = Generator()
-        generator.weight_norm()
-        generator.load_state_dict(hifi_gan_states)
+        print(generator_config)
+        generator = Generator(generator_config)
+        generator.load_state_dict(generator_state_dict["generator"])
+
         generator.remove_weight_norm()
         generator.eval()
         generator = generator.cuda(device)
@@ -53,6 +76,27 @@ def do_test(
     test_df = pd.read_csv(
         dataset_config["test"], delimiter="|", quoting=csv.QUOTE_NONE, engine="c"
     )
+
+    # If the config restricts the data to a single speaker ID, deal with this now
+    if "force_speaker" in extensions_config["speaker_tokens"]:
+        # This is a single-speaker model - no need for speaker tokens
+        if extensions_config["speaker_tokens"]["active"]:
+            raise Exception("Cannot use speaker tokens with force_speaker parameter!")
+
+        # If we're offering controls, ensure we're only offering them over speaker-normalized
+        # controls. Otherwise we might get weird results!
+        if extensions_config["controls"]["active"]:
+            if not all(
+                ["speaker_norm" in x for x in extensions_config["controls"]["features"]]
+            ):
+                raise Exception(
+                    "If force_speaker, all controls must be for speaker-normalized values!"
+                )
+
+        force_speaker_id = extensions_config["speaker_tokens"]["force_speaker"]
+        test_df = test_df[test_df.speaker_id == force_speaker_id].reset_index(
+            drop=True
+        )
 
     test_features = (
         test_df[extensions_config["controls"]["features"]].values.tolist()
@@ -98,6 +142,7 @@ def do_test(
         + (dataset_config["preprocessing"]["end_token"] is not None),
         num_mels=dataset_config["preprocessing"]["num_mels"],
         max_len_override=5000,
+        scheduler_milestones=[],
         **model_config["args"],
     )
 
@@ -122,7 +167,8 @@ def do_test(
                 mel_lengths = (gate < 0).type(torch.long).squeeze(-1).argmax(dim=-1)
                 wav_lengths = mel_lengths * 256
 
-                wavs = generator(mel_spectrogram_post.cuda(device))
+                wavs = generator(mel_spectrogram_post.cuda(device).swapaxes(1, 2))
+                wavs = wavs.squeeze(1)
                 del mel_spectrogram_post
                 wavs = wavs.cpu().numpy()
 

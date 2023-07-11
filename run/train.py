@@ -28,8 +28,8 @@ def do_train(
     prosody_model_checkpoint: Optional[str] = None,
 ):
     if results_dir is None:
-       results_dir = f"results_{training_config['name']} {datetime.datetime.now()}"
-       os.mkdir(results_dir)
+        results_dir = f"results_{training_config['name']} {datetime.datetime.now()}"
+        os.mkdir(results_dir)
 
     cache_dir = path.join(results_dir, "mel_cache")
 
@@ -41,7 +41,7 @@ def do_train(
     )
 
     # If the config restricts the data to a single speaker ID, deal with this now
-    if extensions_config["speaker_tokens"]["force_speaker"] is not None:
+    if "force_speaker" in extensions_config["speaker_tokens"]:
         # This is a single-speaker model - no need for speaker tokens
         if extensions_config["speaker_tokens"]["active"]:
             raise Exception("Cannot use speaker tokens with force_speaker parameter!")
@@ -57,7 +57,9 @@ def do_train(
                 )
 
         force_speaker_id = extensions_config["speaker_tokens"]["force_speaker"]
-        train_df = train_df[train_df.speaker_id == force_speaker_id].reset_index(drop=True)
+        train_df = train_df[train_df.speaker_id == force_speaker_id].reset_index(
+            drop=True
+        )
         val_df = val_df[val_df.speaker_id == force_speaker_id].reset_index(drop=True)
 
     train_features = (
