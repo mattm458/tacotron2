@@ -1,4 +1,4 @@
---find-links https://download.pytorch.org/whl/cu118/torch_stable.html
+--find-links https://download.pytorch.org/whl/cu121/torch_nightly.html
 
 aiohttp==3.8.4
 aiohttp-jinja2==1.5.1
