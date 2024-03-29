@@ -1,8 +1,8 @@
 {
   "dataset": {
-    "train": "data/ljspeech-train.csv",
-    "test": "data/ljspeech-test.csv",
-    "val": "data/ljspeech-val.csv",
+    "train": "data/ljspeech-train-v4.csv",
+    "test": "data/ljspeech-test-v4.csv",
+    "val": "data/ljspeech-val-v4.csv",
     "preprocessing": {
       "allowed_chars": "!'(),.:;? \\-abcdefghijklmnopqrstuvwxyz",
       "expand_abbreviations": true,
@@ -38,8 +38,7 @@
       "postnet_dim": 512,
       "dropout": 0.5,
       "char_embedding_dim": 512,
-      "encoder_kernel_size": 5,
-      "speaker_tokens": false
+      "encoder_kernel_size": 5
     }
   },
   "extensions": {

@@ -84,7 +84,7 @@ def train(
         speech_dir=speech_dir,
         results_dir=results_dir,
         resume_ckpt=resume_ckpt,
-        prosody_model_checkpoint=prosody_model_checkpoint,
+        #prosody_model_checkpoint=prosody_model_checkpoint,
     )
 
 
