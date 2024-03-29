@@ -5,7 +5,7 @@ import matplotlib
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
-from prosody_modeling.model.prosody_model import ProsodyModel
+#from prosody_modeling.model.prosody_model import ProsodyModel
 from torch import Tensor
 from torch.nn import functional as F
 
@@ -35,8 +35,8 @@ class TTSModel(pl.LightningModule):
         controls: bool = False,
         controls_dim: int = 0,
         max_len_override: Optional[int] = None,
-        prosody_model: Optional[ProsodyModel] = None,
-        prosody_model_after: int = 0,
+        #prosody_model: Optional[ProsodyModel] = None,
+        #prosody_model_after: int = 0,
     ):
         super().__init__()
 
@@ -49,8 +49,8 @@ class TTSModel(pl.LightningModule):
         self.controls = controls
         self.max_len_override = max_len_override
 
-        self.prosody_model = prosody_model
-        self.prosody_model_after = prosody_model_after
+        #self.prosody_model = prosody_model
+        #self.prosody_model_after = prosody_model_after
 
         self.tacotron2 = Tacotron2(
             num_chars=num_chars,
@@ -160,13 +160,13 @@ class TTSModel(pl.LightningModule):
         if self.controls:
             args["controls"] = tts_metadata["features"]
 
-        if (
-            self.prosody_model is not None
-            and self.global_step >= self.prosody_model_after
-        ):
-            _, low, mid, high = self.prosody_model(
-                tts_data["mel_spectrogram"], tts_metadata["mel_spectrogram_len"]
-            )
+        # if (
+        #     self.prosody_model is not None
+        #     and self.global_step >= self.prosody_model_after
+        # ):
+        #     _, low, mid, high = self.prosody_model(
+        #         tts_data["mel_spectrogram"], tts_metadata["mel_spectrogram_len"]
+        #     )
 
         mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
             chars_idx=tts_data["chars_idx"],
