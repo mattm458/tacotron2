@@ -158,11 +158,11 @@ def do_test(
             for _, mel_spectrogram_post, gate, _, texts in tqdm(
                 results, desc="Saving WAVs"
             ):
-                if mel_spectrogram_post.shape[1] == 2000:
+                if mel_spectrogram_post.shape[1] == 5000:
                     logging.warn(
                         "Warning: Batch contains max-length Mel spectrogram! Skipping..."
                     )
-                    continue
+                    exit()
 
                 mel_lengths = (gate < 0).type(torch.long).squeeze(-1).argmax(dim=-1)
                 wav_lengths = mel_lengths * 256

@@ -156,6 +156,7 @@ def do_train(
 
         model_config["args"]["prosody_model"] = prosody_model
         model_config["args"]["prosody_model_after"] = prosody_model_after
+        model_config['args']['prosody_model_loss']=extensions_config['prosody_model']['loss']
 
     scheduler_milestones = [
         int(x * training_config["args"]["max_steps"])
