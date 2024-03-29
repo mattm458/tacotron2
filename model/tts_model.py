@@ -186,28 +186,28 @@ class TTSModel(pl.LightningModule):
         tacotron_loss = gate_loss + mel_loss + mel_post_loss
         loss = tacotron_loss
 
-        if (
-            self.prosody_model is not None
-            and self.global_step >= self.prosody_model_after
-        ):
-            _, low_pred, mid_pred, high_pred = self.prosody_model(
-                mel_spectrogram_post, tts_metadata["mel_spectrogram_len"]
-            )
+        # if (
+        #     self.prosody_model is not None
+        #     and self.global_step >= self.prosody_model_after
+        # ):
+        #     _, low_pred, mid_pred, high_pred = self.prosody_model(
+        #         mel_spectrogram_post, tts_metadata["mel_spectrogram_len"]
+        #     )
 
-            style_loss = (
-                F.mse_loss(low_pred, low)
-                + F.mse_loss(mid_pred, mid)
-                + F.mse_loss(high_pred, high)
-            )
+        #     style_loss = (
+        #         F.mse_loss(low_pred, low)
+        #         + F.mse_loss(mid_pred, mid)
+        #         + F.mse_loss(high_pred, high)
+        #     )
 
-            self.log(
-                "training_style_loss",
-                style_loss.detach(),
-                on_step=True,
-                on_epoch=True,
-            )
+        #     self.log(
+        #         "training_style_loss",
+        #         style_loss.detach(),
+        #         on_step=True,
+        #         on_epoch=True,
+        #     )
 
-            loss += style_loss
+        #     loss += style_loss
 
         self.log(
             "training_gate_loss",
