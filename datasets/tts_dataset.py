@@ -184,7 +184,7 @@ class TTSDataset(Dataset):
             # Create the Mel spectrogram and save its length
             mel_spectrogram = self.melspectrogram(wav, id=str(i))
 
-            if cache_path is not None:
+            if self.cache and cache_path is not None:
                 torch.save(mel_spectrogram, cache_path)
 
         mel_spectrogram_len = torch.IntTensor([len(mel_spectrogram)])

@@ -10,7 +10,7 @@
       "silence": 512,
       "trim": false,
       "num_mels": 80,
-      "cache": true
+      "cache": false
     }
   },
   "training": {
