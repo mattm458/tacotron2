@@ -27,6 +27,7 @@ class Tacotron2(nn.Module):
         num_speakers: int = 1,
         controls: bool = False,
         controls_dim: int = 0,
+        description_tokens: bool = False,
     ):
         super().__init__()
 
@@ -161,7 +162,9 @@ class Tacotron2(nn.Module):
 
         device = chars_idx.device
         longest_chars = chars_idx.shape[1]
-
+        
+        batch_size = chars_idx.shape[0]
+        
         speaker_token: Optional[Tensor] = None
         if self.speaker_tokens:
             speaker_token = F.tanh(self.speaker_embedding(speaker_id))
@@ -177,12 +180,20 @@ class Tacotron2(nn.Module):
 
         if speaker_token is not None:
             encoded += speaker_token.unsqueeze(1)
-
+        print(encoded.shape)
+        exit()
+        # torch.zeros 
+        if description_tokens = True
+        description_tokens = torch.zeros(batch_size,128)
+        unsqeeze, repeat, cat
+        description_tokens = description_tokens.unsqueeze(1).repeat(1,100 (figure out how many chars to repeat it over, max char num),1)
+        torch.cat((encoded, description_tokens), dim=2)
+        
         # Transform the encoded characters for attention
         att_encoded = self.att_encoder(encoded)
 
         # Decoding --------------------------------------------------------------------------------
-        batch_size = chars_idx.shape[0]
+        
 
         # Get empty initial states
         (
