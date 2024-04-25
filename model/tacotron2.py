@@ -59,6 +59,19 @@ class Tacotron2(nn.Module):
             )
             self.speaker_embedding.weight.data.normal_(mean=0, std=0.5)
 
+        self.description_tokens = description_tokens
+        if self.description_tokens:
+            print(f"Tacotron2: Description tokens enabled")
+        else:
+            print("Tacotron2: Description tokens disabled")
+
+        if description_tokens:
+            self.description_embedding = nn.Embedding(
+                #what is num_embeddings for w speaker tokens 
+                num_embeddings=num_speakers, embedding_dim=char_embedding_dim
+            )
+            self.description_embedding.weight.data.normal_(mean=0, std=0.5)
+
         # Tacotron 2 encoder
         self.encoder = Encoder(
             num_chars=num_chars,
@@ -139,6 +152,7 @@ class Tacotron2(nn.Module):
         speaker_id: Optional[Tensor] = None,
         controls: Optional[Tensor] = None,
         max_len_override: Optional[int] = None,
+        description: Optional[Tensor] = None,
     ):
         if teacher_forcing:
             assert (
@@ -151,6 +165,10 @@ class Tacotron2(nn.Module):
         assert not self.speaker_tokens or (
             self.speaker_tokens and speaker_id is not None
         ), "speaker_id tensor required when speaker tokens are active!"
+
+        assert not self.description_tokens or (
+            self.description_tokens and description is not None
+        ), "description tensor required when description tokens are active!"
 
         assert not self.controls or (
             self.controls and controls is not None
@@ -180,15 +198,20 @@ class Tacotron2(nn.Module):
 
         if speaker_token is not None:
             encoded += speaker_token.unsqueeze(1)
-        print(encoded.shape)
-        exit()
+        # print(encoded.shape)
+        # exit()
         # torch.zeros 
-        if description_tokens = True
-        description_tokens = torch.zeros(batch_size,128)
-        unsqeeze, repeat, cat
-        description_tokens = description_tokens.unsqueeze(1).repeat(1,100 (figure out how many chars to repeat it over, max char num),1)
-        torch.cat((encoded, description_tokens), dim=2)
-        
+
+        description_token: Optional[Tensor] = None
+        if self.description_tokens:
+            description_token = F.tanh(self.description_embedding(description))
+
+        if description_token == True:
+            description_token = torch.zeros(batch_size,128)
+            description_token = description_token.unsqueeze(1).repeat(1,100,1)
+            # (figure out how many chars to repeat it over, max char num)
+            # torch.cat((encoded, description_token), dim=2)
+            encoded = torch.cat((encoded, description_token), dim=2)
         # Transform the encoded characters for attention
         att_encoded = self.att_encoder(encoded)
 
