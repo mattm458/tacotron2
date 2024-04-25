@@ -208,8 +208,8 @@ class Tacotron2(nn.Module):
 
         if description_token == True:
             description_token = torch.zeros(batch_size,128)
-            description_token = description_token.unsqueeze(1).repeat(1,100,1)
-            # (figure out how many chars to repeat it over, max char num)
+            description_token = description_token.unsqueeze(1).repeat(1,370,1)
+            # (figure out how many chars to repeat it over, max char num, found to be 367 max num )
             # torch.cat((encoded, description_token), dim=2)
             encoded = torch.cat((encoded, description_token), dim=2)
         # Transform the encoded characters for attention
