@@ -28,7 +28,7 @@ class Tacotron2(nn.Module):
         controls: bool = False,
         controls_dim: int = 0,
         description_tokens: bool = True,
-        description_token_dim: int=128,
+        description_token_dim: int = 128,
     ):
         super().__init__()
 
@@ -90,7 +90,7 @@ class Tacotron2(nn.Module):
 
         # Additional encoder layer for attention. Done here since it applies to the entire
         # character input, and is only applied once before invoking the decoder
-        self.att_encoder = nn.Linear(self.embedding_dim+description_token_dim, att_dim, bias=False)
+        self.att_encoder = nn.Linear(self.embedding_dim, att_dim, bias=False)
 
         # Tacotron 2 decoder
         self.decoder = Decoder(
@@ -101,7 +101,7 @@ class Tacotron2(nn.Module):
             att_dim=att_dim,
             rnn_hidden_dim=rnn_hidden_dim,
             dropout=dropout,
-            extra_decoder_in_dim=controls_dim+description_token_dim,
+            extra_decoder_in_dim=controls_dim + description_token_dim,
         )
 
         # Postnet layer. Done here since it applies to the entire Mel spectrogram output.
@@ -176,9 +176,9 @@ class Tacotron2(nn.Module):
 
         device = chars_idx.device
         longest_chars = chars_idx.shape[1]
-        
+
         batch_size = chars_idx.shape[0]
-        
+
         speaker_token: Optional[Tensor] = None
         if self.speaker_tokens:
             speaker_token = F.tanh(self.speaker_embedding(speaker_id))
@@ -196,19 +196,18 @@ class Tacotron2(nn.Module):
             encoded += speaker_token.unsqueeze(1)
         # print(encoded.shape)
         # exit()
-        # torch.zeros 
+        # torch.zeros
 
+        description_tokens: Tensor | None = None
         if self.description_tokens == True:
-            description_tokens = torch.zeros(batch_size,self.description_token_dim, device=device)
-            description_tokens = description_tokens.unsqueeze(1).repeat(1,longest_chars,1)
-            # (figure out how many chars to repeat it over, max char num, found to be 367 max num )
-            # torch.cat((encoded, description_token), dim=2)
-            encoded = torch.cat((encoded, description_tokens), dim=2)
+            description_tokens = torch.zeros(
+                batch_size, self.description_token_dim, device=device
+            )
+
         # Transform the encoded characters for attention
         att_encoded = self.att_encoder(encoded)
 
         # Decoding --------------------------------------------------------------------------------
-        
 
         # Get empty initial states
         (
@@ -260,6 +259,9 @@ class Tacotron2(nn.Module):
 
             if self.controls and controls is not None:
                 extra_decoder_in.append(controls)
+
+            if self.description_tokens and description_tokens is not None:
+                extra_decoder_in.append(description_tokens)
 
             args["extra_decoder_in"] = None
             if len(extra_decoder_in):
