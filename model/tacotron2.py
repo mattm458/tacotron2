@@ -27,7 +27,8 @@ class Tacotron2(nn.Module):
         num_speakers: int = 1,
         controls: bool = False,
         controls_dim: int = 0,
-        description_tokens: bool = False,
+        description_tokens: bool = True,
+        description_token_dim: int=128,
     ):
         super().__init__()
 
@@ -65,12 +66,7 @@ class Tacotron2(nn.Module):
         else:
             print("Tacotron2: Description tokens disabled")
 
-        if description_tokens:
-            self.description_embedding = nn.Embedding(
-                #what is num_embeddings for w speaker tokens 
-                num_embeddings=num_speakers, embedding_dim=char_embedding_dim
-            )
-            self.description_embedding.weight.data.normal_(mean=0, std=0.5)
+        self.description_token_dim = description_token_dim
 
         # Tacotron 2 encoder
         self.encoder = Encoder(
@@ -94,7 +90,7 @@ class Tacotron2(nn.Module):
 
         # Additional encoder layer for attention. Done here since it applies to the entire
         # character input, and is only applied once before invoking the decoder
-        self.att_encoder = nn.Linear(self.embedding_dim, att_dim, bias=False)
+        self.att_encoder = nn.Linear(self.embedding_dim+description_token_dim, att_dim, bias=False)
 
         # Tacotron 2 decoder
         self.decoder = Decoder(
@@ -105,7 +101,7 @@ class Tacotron2(nn.Module):
             att_dim=att_dim,
             rnn_hidden_dim=rnn_hidden_dim,
             dropout=dropout,
-            extra_decoder_in_dim=controls_dim,
+            extra_decoder_in_dim=controls_dim+description_token_dim,
         )
 
         # Postnet layer. Done here since it applies to the entire Mel spectrogram output.
@@ -166,9 +162,9 @@ class Tacotron2(nn.Module):
             self.speaker_tokens and speaker_id is not None
         ), "speaker_id tensor required when speaker tokens are active!"
 
-        assert not self.description_tokens or (
-            self.description_tokens and description is not None
-        ), "description tensor required when description tokens are active!"
+        # assert not self.description_tokens or (
+        #     self.description_tokens and description is not None
+        # ), "description tensor required when description tokens are active!"
 
         assert not self.controls or (
             self.controls and controls is not None
@@ -202,16 +198,12 @@ class Tacotron2(nn.Module):
         # exit()
         # torch.zeros 
 
-        description_token: Optional[Tensor] = None
-        if self.description_tokens:
-            description_token = F.tanh(self.description_embedding(description))
-
-        if description_token == True:
-            description_token = torch.zeros(batch_size,128)
-            description_token = description_token.unsqueeze(1).repeat(1,370,1)
+        if self.description_tokens == True:
+            description_tokens = torch.zeros(batch_size,self.description_token_dim, device=device)
+            description_tokens = description_tokens.unsqueeze(1).repeat(1,longest_chars,1)
             # (figure out how many chars to repeat it over, max char num, found to be 367 max num )
             # torch.cat((encoded, description_token), dim=2)
-            encoded = torch.cat((encoded, description_token), dim=2)
+            encoded = torch.cat((encoded, description_tokens), dim=2)
         # Transform the encoded characters for attention
         att_encoded = self.att_encoder(encoded)
 
