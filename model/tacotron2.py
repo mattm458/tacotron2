@@ -27,6 +27,8 @@ class Tacotron2(nn.Module):
         num_speakers: int = 1,
         controls: bool = False,
         controls_dim: int = 0,
+        description_tokens: bool = True,
+        description_token_dim: int = 128,
     ):
         super().__init__()
 
@@ -57,6 +59,14 @@ class Tacotron2(nn.Module):
                 num_embeddings=num_speakers, embedding_dim=char_embedding_dim
             )
             self.speaker_embedding.weight.data.normal_(mean=0, std=0.5)
+
+        self.description_tokens = description_tokens
+        if self.description_tokens:
+            print(f"Tacotron2: Description tokens enabled")
+        else:
+            print("Tacotron2: Description tokens disabled")
+
+        self.description_token_dim = description_token_dim
 
         # Tacotron 2 encoder
         self.encoder = Encoder(
@@ -91,7 +101,7 @@ class Tacotron2(nn.Module):
             att_dim=att_dim,
             rnn_hidden_dim=rnn_hidden_dim,
             dropout=dropout,
-            extra_decoder_in_dim=controls_dim,
+            extra_decoder_in_dim=controls_dim + description_token_dim,
         )
 
         # Postnet layer. Done here since it applies to the entire Mel spectrogram output.
@@ -138,6 +148,7 @@ class Tacotron2(nn.Module):
         speaker_id: Optional[Tensor] = None,
         controls: Optional[Tensor] = None,
         max_len_override: Optional[int] = None,
+        description: Optional[Tensor] = None,
     ):
         if teacher_forcing:
             assert (
@@ -151,6 +162,10 @@ class Tacotron2(nn.Module):
             self.speaker_tokens and speaker_id is not None
         ), "speaker_id tensor required when speaker tokens are active!"
 
+        # assert not self.description_tokens or (
+        #     self.description_tokens and description is not None
+        # ), "description tensor required when description tokens are active!"
+
         assert not self.controls or (
             self.controls and controls is not None
         ), "Controls are enabled, but no control vector was passed to the model!"
@@ -161,6 +176,8 @@ class Tacotron2(nn.Module):
 
         device = chars_idx.device
         longest_chars = chars_idx.shape[1]
+
+        batch_size = chars_idx.shape[0]
 
         speaker_token: Optional[Tensor] = None
         if self.speaker_tokens:
@@ -177,12 +194,20 @@ class Tacotron2(nn.Module):
 
         if speaker_token is not None:
             encoded += speaker_token.unsqueeze(1)
+        # print(encoded.shape)
+        # exit()
+        # torch.zeros
+
+        description_tokens: Tensor | None = None
+        if self.description_tokens == True:
+            description_tokens = torch.zeros(
+                batch_size, self.description_token_dim, device=device
+            )
 
         # Transform the encoded characters for attention
         att_encoded = self.att_encoder(encoded)
 
         # Decoding --------------------------------------------------------------------------------
-        batch_size = chars_idx.shape[0]
 
         # Get empty initial states
         (
@@ -234,6 +259,9 @@ class Tacotron2(nn.Module):
 
             if self.controls and controls is not None:
                 extra_decoder_in.append(controls)
+
+            if self.description_tokens and description_tokens is not None:
+                extra_decoder_in.append(description_tokens)
 
             args["extra_decoder_in"] = None
             if len(extra_decoder_in):

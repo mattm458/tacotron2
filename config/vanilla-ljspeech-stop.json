@@ -15,7 +15,7 @@
   },
   "training": {
     "lr": 0.001,
-    "batch_size": 64,
+    "batch_size": 32,
     "weight_decay": 0.000001,
     "precision": "16-mixed",
     "name": "vanilla-ljspeech-stop",
