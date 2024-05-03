@@ -69,6 +69,7 @@ class TTSDataset(Dataset):
         cache=False,
         cache_dir=None,
         description_embeddings: list[str] | None = None,
+        sample_rate: int = 22050,
     ):
         super().__init__()
 
@@ -153,7 +154,9 @@ class TTSDataset(Dataset):
             self.encoder.fit([[x] for x in list(allowed_chars) + [end_token]])
 
         # Create a Torchaudio MelSpectrogram generator
-        self.melspectrogram = TacotronMelSpectrogram(n_mels=num_mels)
+        self.melspectrogram = TacotronMelSpectrogram(
+            n_mels=num_mels, sample_rate=sample_rate
+        )
 
     def __len__(self):
         return len(self.filenames)

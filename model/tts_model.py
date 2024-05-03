@@ -81,11 +81,12 @@ class TTSModel(pl.LightningModule):
         )
         optimizer_config = {"optimizer": optimizer}
 
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(
-            optimizer, milestones=self.scheduler_milestones, gamma=0.1
-        )
-        lr_scheduler_config = {"scheduler": scheduler, "interval": "step"}
-        optimizer_config["lr_scheduler"] = lr_scheduler_config
+        if len(self.scheduler_milestones) > 0:
+            scheduler = torch.optim.lr_scheduler.MultiStepLR(
+                optimizer, milestones=self.scheduler_milestones, gamma=0.1
+            )
+            lr_scheduler_config = {"scheduler": scheduler, "interval": "step"}
+            optimizer_config["lr_scheduler"] = lr_scheduler_config
 
         return optimizer_config
 
