@@ -4,6 +4,7 @@ import os
 from os import path
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 import torch
 from lightning import Trainer
@@ -13,7 +14,8 @@ from lightning.pytorch.loggers import TensorBoardLogger
 from datasets.tts_dataloader import TTSDataLoader
 from datasets.tts_dataset import TTSDataset
 from model.tts_model import TTSModel
-#from prosody_modeling.model.lightning import ProsodyModelLightning
+
+# from prosody_modeling.model.lightning import ProsodyModelLightning
 
 
 def do_train(
@@ -25,7 +27,7 @@ def do_train(
     speech_dir: str,
     results_dir: Optional[str] = None,
     resume_ckpt: Optional[str] = None,
-    #prosody_model_checkpoint: Optional[str] = None,
+    # prosody_model_checkpoint: Optional[str] = None,
 ):
     if results_dir is None:
         results_dir = f"results_{training_config['name']} {datetime.datetime.now()}"
@@ -71,12 +73,19 @@ def do_train(
     train_dataset = TTSDataset(
         filenames=train_df.wav,
         texts=train_df.text,
-        speaker_ids=train_df.speaker_id
-        if extensions_config["speaker_tokens"]["active"]
-        else None,
+        speaker_ids=(
+            train_df.speaker_id
+            if extensions_config["speaker_tokens"]["active"]
+            else None
+        ),
         features=train_features,
         base_dir=speech_dir,
         cache_dir=cache_dir,
+        description_embeddings=(
+            list(train_df.description_embeddings.replace({np.nan: None}))
+            if extensions_config["descriptions"]["description_embeddings"]
+            else None
+        ),
         **dataset_config["preprocessing"],
     )
 
@@ -89,12 +98,17 @@ def do_train(
     val_dataset = TTSDataset(
         filenames=val_df.wav,
         texts=val_df.text,
-        speaker_ids=train_df.speaker_id
-        if extensions_config["speaker_tokens"]["active"]
-        else None,
+        speaker_ids=(
+            val_df.speaker_id if extensions_config["speaker_tokens"]["active"] else None
+        ),
         features=val_features,
         base_dir=speech_dir,
         cache_dir=cache_dir,
+        description_embeddings=(
+            list(val_df.description_embeddings.replace({np.nan: None}))
+            if extensions_config["descriptions"]["description_embeddings"]
+            else None
+        ),
         **dataset_config["preprocessing"],
     )
 
