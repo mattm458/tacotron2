@@ -49,8 +49,8 @@ def _expand_abbreviations(text):
 class TTSDataset(Dataset):
     def __init__(
         self,
-        filenames: List[str],
-        texts: List[str],
+        filenames: list[str],
+        texts: list[str],
         base_dir: str,
         speaker_ids: Optional[List[str]] = None,
         features=None,
@@ -68,6 +68,7 @@ class TTSDataset(Dataset):
         num_mels: int = 80,
         cache=False,
         cache_dir=None,
+        description_embeddings: list[str] | None = None,
     ):
         super().__init__()
 
@@ -131,6 +132,7 @@ class TTSDataset(Dataset):
         texts = [
             allowed_chars_re.sub("", unidecode.unidecode(t).lower()) for t in texts
         ]
+
         if expand_abbreviations:
             print("Dataset: Expanding abbreviations in input text...")
             texts = [_expand_abbreviations(t) for t in texts]
@@ -138,6 +140,7 @@ class TTSDataset(Dataset):
             texts = [t + end_token for t in texts]
 
         self.texts = texts
+        self.description_embeddings = description_embeddings
 
         self.speaker_ids = speaker_ids
 
@@ -231,6 +234,18 @@ class TTSDataset(Dataset):
         if self.speaker_ids is not None:
             out_metadata["speaker_id"] = torch.IntTensor([self.speaker_ids[i]])
 
+        if self.description_embeddings is not None:
+            if self.description_embeddings[i] is not None:
+                description_embeddings = torch.load(
+                    path.join(self.base_dir, self.description_embeddings[i])
+                )
+                out_data["description_embeddings"] = description_embeddings
+                out_metadata["description_embeddings_len"] = torch.IntTensor(
+                    [description_embeddings.shape[0]]
+                )
+            else:
+                out_data["description_embeddings"] = torch.zeros((1, 50))
+                out_metadata["description_embeddings_len"] = torch.IntTensor([1])
         # If we're including speech features, include them in output
         if self.features is not None:
             # We can optionally override features from the dataset.

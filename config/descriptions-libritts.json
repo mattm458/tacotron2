@@ -1,0 +1,59 @@
+{
+  "dataset": {
+    "train": "data/libritts-description-train.csv",
+    "test": "data/libritts-description-test.csv",
+    "val": "data/libritts-description-val.csv",
+    "preprocessing": {
+      "allowed_chars": "!'(),.:;? \\-abcdefghijklmnopqrstuvwxyz",
+      "expand_abbreviations": true,
+      "end_token": "^",
+      "silence": 512,
+      "trim": false,
+      "num_mels": 80,
+      "cache": false
+    }
+  },
+  "training": {
+    "lr": 0.001,
+    "batch_size": 16,
+    "weight_decay": 0.000001,
+    "precision": "16-mixed",
+    "name": "descriptions-libritts",
+    "float32_matmul_precision": "high",
+    "stopping_val_loss_threshold": null,
+    "description_embeddings": true,
+    "args": {
+      "max_steps": 100000
+    }
+  },
+  "model": {
+    "scheduler_milestones": [
+      0.5,
+      0.75
+    ],
+    "args": {
+      "prenet_dim": 256,
+      "att_rnn_dim": 1024,
+      "att_dim": 128,
+      "rnn_hidden_dim": 1024,
+      "postnet_dim": 512,
+      "dropout": 0.5,
+      "char_embedding_dim": 512,
+      "encoder_kernel_size": 5,
+      "description_tokens": true,
+      "description_token_dim": 128
+    }
+  },
+  "extensions": {
+    "speaker_tokens": {
+      "active": true,
+      "num_speakers": 562
+    },
+    "controls": {
+      "active": false
+    },
+    "descriptions": {
+      "description_embeddings": true
+    }
+  }
+}
