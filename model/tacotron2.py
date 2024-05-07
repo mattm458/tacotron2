@@ -28,8 +28,8 @@ class Tacotron2(nn.Module):
         num_speakers: int = 1,
         controls: bool = False,
         controls_dim: int = 0,
-        description_tokens: bool = False,
-        description_token_dim: int = 0,
+        description_embeddings: bool = False,
+        description_embeddings_dim: int = 0,
     ):
         super().__init__()
 
@@ -63,20 +63,15 @@ class Tacotron2(nn.Module):
             )
             self.speaker_embedding.weight.data.normal_(mean=0, std=0.5)
 
-        self.description_tokens = description_tokens
-        if self.description_tokens:
-            print(f"Tacotron2: Description tokens enabled")
-            self.description_token_encoder = EmbeddingEncoder(
-                embedding_dim=50,
-                encoder_out_dim=128,
-                encoder_num_layers=2,
-                encoder_dropout=0.25,
-                attention_dim=128,
+        self.description_embeddings = description_embeddings
+        if self.description_embeddings:
+            print(f"Tacotron2: Description embeddings enabled")
+            self.description_embedding_linear = nn.Linear(
+                description_embeddings_dim, 512
             )
-        else:
-            print("Tacotron2: Description tokens disabled")
 
-        self.description_token_dim = description_token_dim
+        else:
+            print("Tacotron2: Description embeddings disabled")
 
         # Tacotron 2 encoder
         self.encoder = Encoder(
@@ -111,9 +106,7 @@ class Tacotron2(nn.Module):
             att_dim=att_dim,
             rnn_hidden_dim=rnn_hidden_dim,
             dropout=dropout,
-            extra_decoder_in_dim=controls_dim
-            + description_token_dim
-            + (speaker_token_dim if speaker_tokens else 0),
+            extra_decoder_in_dim=controls_dim,
         )
 
         # Postnet layer. Done here since it applies to the entire Mel spectrogram output.
@@ -160,8 +153,7 @@ class Tacotron2(nn.Module):
         speaker_id: Optional[Tensor] = None,
         controls: Optional[Tensor] = None,
         max_len_override: Optional[int] = None,
-        description_tokens: Optional[Tensor] = None,
-        description_token_len: Optional[Tensor] = None,
+        description_embeddings: Optional[Tensor] = None,
     ):
         if teacher_forcing:
             assert (
@@ -175,8 +167,8 @@ class Tacotron2(nn.Module):
             self.speaker_tokens and speaker_id is not None
         ), "speaker_id tensor required when speaker tokens are active!"
 
-        assert not self.description_tokens or (
-            self.description_tokens and description_tokens is not None
+        assert not self.description_embeddings or (
+            self.description_embeddings and description_embeddings is not None
         ), "description tensor required when description tokens are active!"
 
         assert not self.controls or (
@@ -192,23 +184,24 @@ class Tacotron2(nn.Module):
 
         batch_size = chars_idx.shape[0]
 
-        speaker_token: Optional[Tensor] = None
-        if self.speaker_tokens:
-            speaker_token = F.tanh(self.speaker_embedding(speaker_id))
-
         # Encoding --------------------------------------------------------------------------------
         encoded = self.encoder(chars_idx, chars_idx_len)
+
+        tokens = Tensor = torch.zeros_like(encoded, device=device)
+        if self.speaker_tokens:
+            tokens += self.speaker_embedding(speaker_id).unsqueeze(1)
+        if self.description_embeddings and description_embeddings is not None:
+            tokens += self.description_embedding_linear(
+                description_embeddings
+            ).unsqueeze(1)
+
+        encoded += F.tanh(tokens)
 
         # Create a mask for the encoded characters
         encoded_mask = (
             torch.arange(longest_chars, device=device)[None, :]
             >= chars_idx_len[:, None]
         )
-
-        if self.description_tokens:
-            description_tokens, _ = self.description_token_encoder(
-                description_tokens, description_token_len
-            )
 
         # Transform the encoded characters for attention
         att_encoded = self.att_encoder(encoded)
@@ -263,14 +256,8 @@ class Tacotron2(nn.Module):
 
             extra_decoder_in: list[Tensor] = []
 
-            if self.speaker_tokens is not None and speaker_token is not None:
-                extra_decoder_in.append(speaker_token)
-
             if self.controls and controls is not None:
                 extra_decoder_in.append(controls)
-
-            if self.description_tokens and description_tokens is not None:
-                extra_decoder_in.append(description_tokens)
 
             args["extra_decoder_in"] = None
             if len(extra_decoder_in):
