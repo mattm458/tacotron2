@@ -38,8 +38,8 @@ class TTSModel(pl.LightningModule):
         max_len_override: Optional[int] = None,
         # prosody_model: Optional[ProsodyModel] = None,
         # prosody_model_after: int = 0,
-        description_tokens: bool = False,
-        description_token_dim: int = 0,
+        description_embeddings: bool = False,
+        description_embeddings_dim: int = 0,
     ):
         super().__init__()
 
@@ -51,7 +51,7 @@ class TTSModel(pl.LightningModule):
         self.speaker_tokens = speaker_tokens
         self.controls = controls
         self.max_len_override = max_len_override
-        self.description_tokens = description_tokens
+        self.description_embeddings = description_embeddings
 
         # self.prosody_model = prosody_model
         # self.prosody_model_after = prosody_model_after
@@ -71,8 +71,8 @@ class TTSModel(pl.LightningModule):
             num_speakers=num_speakers,
             controls=controls,
             controls_dim=controls_dim,
-            description_tokens=description_tokens,
-            description_token_dim=description_token_dim,
+            description_embeddings=description_embeddings,
+            description_embeddings_dim=description_embeddings_dim,
         )
 
     def configure_optimizers(self):
@@ -100,8 +100,7 @@ class TTSModel(pl.LightningModule):
         speaker_id: Optional[Tensor] = None,
         controls: Optional[Tensor] = None,
         max_len_override: Optional[int] = None,
-        description_tokens: Optional[Tensor] = None,
-        description_token_len: Optional[Tensor] = None,
+        description_embeddings: Optional[Tensor] = None,
     ):
         return self.tacotron2(
             chars_idx=chars_idx,
@@ -112,8 +111,7 @@ class TTSModel(pl.LightningModule):
             speaker_id=speaker_id,
             controls=controls,
             max_len_override=max_len_override,
-            description_tokens=description_tokens,
-            description_token_len=description_token_len,
+            description_embeddings=description_embeddings,
         )
 
     def validation_step(self, batch, batch_idx):
@@ -126,9 +124,8 @@ class TTSModel(pl.LightningModule):
         if self.controls:
             args["controls"] = tts_metadata["features"]
 
-        if self.description_tokens:
-            args["description_tokens"] = tts_data["description_embeddings"]
-            args["description_token_len"] = tts_metadata["description_embeddings_len"]
+        if self.description_embeddings:
+            args["description_embeddings"] = tts_metadata["description_embeddings"]
 
         mel_spectrogram, mel_spectrogram_post, gate, alignment = self(
             chars_idx=tts_data["chars_idx"],
@@ -175,9 +172,8 @@ class TTSModel(pl.LightningModule):
         if self.controls:
             args["controls"] = tts_metadata["features"]
 
-        if self.description_tokens:
-            args["description_tokens"] = tts_data["description_embeddings"]
-            args["description_token_len"] = tts_metadata["description_embeddings_len"]
+        if self.description_embeddings:
+            args["description_embeddings"] = tts_metadata["description_embeddings"]
 
         # if (
         #     self.prosody_model is not None

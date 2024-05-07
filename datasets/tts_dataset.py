@@ -68,7 +68,8 @@ class TTSDataset(Dataset):
         num_mels: int = 80,
         cache=False,
         cache_dir=None,
-        description_embeddings: list[str] | None = None,
+        description_embeddings: Optional[list[str]] = None,
+        description_embeddings_dim: int = 1024,
         sample_rate: int = 22050,
     ):
         super().__init__()
@@ -142,6 +143,7 @@ class TTSDataset(Dataset):
 
         self.texts = texts
         self.description_embeddings = description_embeddings
+        self.description_embeddings_dim = description_embeddings_dim
 
         self.speaker_ids = speaker_ids
 
@@ -239,16 +241,14 @@ class TTSDataset(Dataset):
 
         if self.description_embeddings is not None:
             if self.description_embeddings[i] is not None:
-                description_embeddings = torch.load(
+                out_metadata["description_embeddings"] = torch.load(
                     path.join(self.base_dir, self.description_embeddings[i])
-                )
-                out_data["description_embeddings"] = description_embeddings
-                out_metadata["description_embeddings_len"] = torch.IntTensor(
-                    [description_embeddings.shape[0]]
-                )
+                ).unsqueeze(0)
             else:
-                out_data["description_embeddings"] = torch.zeros((1, 50))
-                out_metadata["description_embeddings_len"] = torch.IntTensor([1])
+                out_metadata["description_embeddings"] = torch.zeros(
+                    1, self.description_embeddings_dim
+                )
+
         # If we're including speech features, include them in output
         if self.features is not None:
             # We can optionally override features from the dataset.

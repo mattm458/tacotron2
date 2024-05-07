@@ -1,8 +1,8 @@
 {
   "dataset": {
-    "train": "data/libritts-description-train.csv",
-    "test": "data/libritts-description-test.csv",
-    "val": "data/libritts-description-val.csv",
+    "train": "data/libritts-description-train-2.csv",
+    "test": "data/libritts-description-test-2.csv",
+    "val": "data/libritts-description-val-2.csv",
     "preprocessing": {
       "allowed_chars": "!'(),.:;? \\-abcdefghijklmnopqrstuvwxyz",
       "expand_abbreviations": true,
@@ -15,8 +15,8 @@
     }
   },
   "training": {
-    "lr": 0.00025,
-    "batch_size": 16,
+    "lr": 0.000125,
+    "batch_size": 8,
     "weight_decay": 0.000001,
     "precision": "16-mixed",
     "name": "descriptions-libritts",
@@ -38,8 +38,8 @@
       "dropout": 0.5,
       "char_embedding_dim": 512,
       "encoder_kernel_size": 5,
-      "description_tokens": true,
-      "description_token_dim": 128
+      "description_embeddings": true,
+      "description_embeddings_dim": 1024
     }
   },
   "extensions": {
@@ -51,7 +51,7 @@
       "active": false
     },
     "descriptions": {
-      "description_embeddings": true
+      "bert_embeddings": true
     }
   }
 }

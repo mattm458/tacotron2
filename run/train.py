@@ -82,8 +82,8 @@ def do_train(
         base_dir=speech_dir,
         cache_dir=cache_dir,
         description_embeddings=(
-            list(train_df.description_embeddings.replace({np.nan: None}))
-            if extensions_config["descriptions"]["description_embeddings"]
+            list(train_df.description_embedding.replace({np.nan: None}))
+            if extensions_config["descriptions"]["bert_embeddings"]
             else None
         ),
         **dataset_config["preprocessing"],
@@ -105,8 +105,8 @@ def do_train(
         base_dir=speech_dir,
         cache_dir=cache_dir,
         description_embeddings=(
-            list(val_df.description_embeddings.replace({np.nan: None}))
-            if extensions_config["descriptions"]["description_embeddings"]
+            list(train_df.description_embedding.replace({np.nan: None}))
+            if extensions_config["descriptions"]["bert_embeddings"]
             else None
         ),
         **dataset_config["preprocessing"],
