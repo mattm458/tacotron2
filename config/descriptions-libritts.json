@@ -1,8 +1,8 @@
 {
   "dataset": {
-    "train": "data/libritts-description-train-2.csv",
-    "test": "data/libritts-description-test-2.csv",
-    "val": "data/libritts-description-val-2.csv",
+    "train": "data/libritts-description-train-3.csv",
+    "test": "data/libritts-description-test-3.csv",
+    "val": "data/libritts-description-val-3.csv",
     "preprocessing": {
       "allowed_chars": "!'(),.:;? \\-abcdefghijklmnopqrstuvwxyz",
       "expand_abbreviations": true,
@@ -26,7 +26,8 @@
     "stopping_val_loss_threshold": null,
     "description_embeddings": true,
     "args": {
-      "max_steps": 100000
+      "max_steps": 100000,
+      "val_check_interval": 2
     }
   },
   "model": {

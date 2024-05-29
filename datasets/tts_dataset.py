@@ -59,7 +59,7 @@ class TTSDataset(Dataset):
         silence: int = 0,
         trim: bool = True,
         trim_top_db: int = 60,
-        trim_frame_length:int = 2048,
+        trim_frame_length: int = 2048,
         feature_override=None,
         expand_abbreviations=False,
         include_wav=False,
@@ -187,7 +187,11 @@ class TTSDataset(Dataset):
             wav = wav.squeeze(0)
 
             if self.trim:
-                wav_np, _ = librosa.effects.trim(wav.numpy(), top_db=self.trim_top_db, frame_length=self.trim_frame_length)
+                wav_np, _ = librosa.effects.trim(
+                    wav.numpy(),
+                    top_db=self.trim_top_db,
+                    frame_length=self.trim_frame_length,
+                )
                 wav = torch.tensor(wav_np)
             wav = F.pad(wav, (0, self.silence))
 
@@ -244,7 +248,11 @@ class TTSDataset(Dataset):
         if self.description_embeddings is not None:
             if self.description_embeddings[i] is not None:
                 out_metadata["description_embeddings"] = torch.load(
-                    path.join(self.base_dir, self.description_embeddings[i])
+                    path.join(
+                        self.base_dir,
+                        self.description_embeddings[i],
+                    ),
+                    map_location="cpu",
                 ).unsqueeze(0)
             else:
                 out_metadata["description_embeddings"] = torch.zeros(
