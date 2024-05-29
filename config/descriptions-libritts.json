@@ -27,7 +27,7 @@
     "description_embeddings": true,
     "args": {
       "max_steps": 100000,
-      "val_check_interval": 2
+      "val_check_interval": 0.1
     }
   },
   "model": {
