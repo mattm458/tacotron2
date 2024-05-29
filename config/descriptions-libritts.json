@@ -8,7 +8,9 @@
       "expand_abbreviations": true,
       "end_token": "^",
       "silence": 512,
-      "trim": false,
+      "trim": true,
+      "trim_top_db": 40,
+      "trim_frame_length": 1024,
       "num_mels": 80,
       "cache": false,
       "sample_rate": 24000
