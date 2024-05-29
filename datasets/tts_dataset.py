@@ -59,6 +59,7 @@ class TTSDataset(Dataset):
         silence: int = 0,
         trim: bool = True,
         trim_top_db: int = 60,
+        trim_frame_length:int = 2048,
         feature_override=None,
         expand_abbreviations=False,
         include_wav=False,
@@ -111,6 +112,7 @@ class TTSDataset(Dataset):
 
         self.trim = trim
         self.trim_top_db = trim_top_db
+        self.trim_frame_length = trim_frame_length
         if trim:
             print(
                 f"Dataset: Trimming silence from input audio files with top db {trim_top_db}"
@@ -185,7 +187,7 @@ class TTSDataset(Dataset):
             wav = wav.squeeze(0)
 
             if self.trim:
-                wav_np, _ = librosa.effects.trim(wav.numpy(), top_db=self.trim_top_db)
+                wav_np, _ = librosa.effects.trim(wav.numpy(), top_db=self.trim_top_db, frame_length=self.trim_frame_length)
                 wav = torch.tensor(wav_np)
             wav = F.pad(wav, (0, self.silence))
 
