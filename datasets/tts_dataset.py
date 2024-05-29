@@ -115,7 +115,7 @@ class TTSDataset(Dataset):
         self.trim_frame_length = trim_frame_length
         if trim:
             print(
-                f"Dataset: Trimming silence from input audio files with top db {trim_top_db}"
+                f"Dataset: Trimming silence with top db {trim_top_db} and frame length {trim_frame_length}"
             )
         else:
             print("Dataset: Not trimming silence from input audio files")
