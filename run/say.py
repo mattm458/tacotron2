@@ -9,6 +9,7 @@ import torch
 import unidecode
 from sklearn.preprocessing import OrdinalEncoder
 from torch import Tensor
+from transformers import AutoTokenizer, BertModel
 
 from model.hifi_gan import Generator
 from model.tts_model import TTSModel
@@ -34,6 +35,7 @@ def do_say(
     speaker_id: Optional[int],
     controls: Optional[str],
     export_mel: bool = True,
+    description: Optional[str] = None,
 ):
     if random_seed is not None:
         torch.manual_seed(random_seed)
@@ -87,6 +89,22 @@ def do_say(
         generator.eval()
         generator = generator.cuda(device)
 
+    # Handle description text
+    if model_config["args"]["description_embeddings"]:
+        if description is None:
+            description_embeddings = torch.zeros(
+                (1, model_config["args"]["description_embeddings_dim"])
+            )
+        else:
+            tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-large-uncased")
+            model = BertModel.from_pretrained("bert-large-uncased").cuda()
+            tokenized = tokenizer(description, return_tensors="pt")
+            description_embeddings = model(
+                input_ids=tokenized["input_ids"].cuda(),
+                token_type_ids=tokenized["token_type_ids"].cuda(),
+                attention_mask=tokenized["attention_mask"].cuda(),
+            ).pooler_output.cpu()
+
     # Handle optional speaker ID
     speaker_tensor: Optional[Tensor] = None
     if extensions_config["speaker_tokens"]["active"]:
@@ -127,6 +145,7 @@ def do_say(
             speaker_id=speaker_tensor,
             controls=controls_tensor,
             max_len_override=5000,
+            description_embeddings=description_embeddings,
         )
 
     wav = None
@@ -141,7 +160,7 @@ def do_say(
 
         wav = librosa.feature.inverse.mel_to_audio(
             np.exp(this_mel_spectrogram.numpy()).T,
-            sr=22050,
+            sr=dataset_config["preprocessing"]["sample_rate"],
             n_fft=1024,
             hop_length=256,
             win_length=1024,
@@ -151,7 +170,7 @@ def do_say(
             fmax=8000,
         )
 
-    sf.write(output, wav, samplerate=22050)
+    sf.write(output, wav, samplerate=dataset_config["preprocessing"]["sample_rate"])
 
     if export_mel:
         if generator:

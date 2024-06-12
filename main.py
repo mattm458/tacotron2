@@ -169,6 +169,13 @@ def train_mel_export(
     default=None,
     help="If controls are enabled, a comma-separated list of values to pass into the model. Defaults to all 0 values.",
 )
+@click.option(
+    "--description",
+    required=False,
+    type=str,
+    default=None,
+    help="If descriptions are enabled, a textual description for how the text is to be spoken.",
+)
 def say(
     ctx: Context,
     checkpoint: str,
@@ -178,6 +185,7 @@ def say(
     hifi_gan_checkpoint: Optional[str],
     random_seed: Optional[int],
     controls: Optional[str],
+    description: Optional[str],
 ):
     if ctx.obj["config"] is None:
         raise Exception("Configuration required for speech!")
@@ -195,6 +203,7 @@ def say(
         hifi_gan_checkpoint=hifi_gan_checkpoint,
         random_seed=random_seed,
         controls=controls,
+        description=description,
     )
 
 
