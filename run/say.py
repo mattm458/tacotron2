@@ -34,7 +34,7 @@ def do_say(
     random_seed: Optional[int],
     speaker_id: Optional[int],
     controls: Optional[str],
-    export_mel: bool = True,
+    export_mel: bool = False,
     description: Optional[str] = None,
 ):
     if random_seed is not None:
