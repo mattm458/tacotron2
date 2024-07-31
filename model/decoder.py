@@ -23,7 +23,6 @@ class Decoder(nn.Module):
         super().__init__()
 
         # Attention components - a LSTM cell and attention module
-        print(f"Attention RNN: {prenet_dim} + {extra_att_in_dim}")
         self.att_rnn = nn.LSTMCell(
             prenet_dim + embedding_dim + extra_att_in_dim, att_rnn_dim
         )

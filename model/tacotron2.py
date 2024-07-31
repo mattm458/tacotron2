@@ -15,7 +15,7 @@ class Tacotron2(nn.Module):
     def __init__(
         self,
         num_chars: int,
-        char_embedding_dim: int,
+        encoded_dim: int,
         encoder_kernel_size: int,
         num_mels: int,
         prenet_dim: int,
@@ -25,6 +25,7 @@ class Tacotron2(nn.Module):
         postnet_dim: int,
         dropout: float,
         speaker_tokens: bool = False,
+        speaker_tokens_dim: int | None = 128,
         num_speakers: int = 1,
         controls: bool = False,
         controls_dim: int = 0,
@@ -33,13 +34,13 @@ class Tacotron2(nn.Module):
     ):
         super().__init__()
 
-        speaker_token_dim = char_embedding_dim
+        speaker_token_dim = encoded_dim
 
-        self.embedding_dim = char_embedding_dim
+        self.embedding_dim = encoded_dim
         self.num_mels = num_mels
         self.att_rnn_dim = att_rnn_dim
         self.rnn_hidden_dim = rnn_hidden_dim
-        self.char_embedding_dim = char_embedding_dim
+        self.char_embedding_dim = encoded_dim
 
         self.controls = controls
         self.controls_dim = controls_dim
@@ -59,27 +60,24 @@ class Tacotron2(nn.Module):
 
         if speaker_tokens:
             self.speaker_embedding = nn.Embedding(
-                num_embeddings=num_speakers, embedding_dim=char_embedding_dim
+                num_embeddings=num_speakers, embedding_dim=encoded_dim
             )
             self.speaker_embedding.weight.data.normal_(mean=0, std=0.5)
 
         self.description_embeddings = description_embeddings
-        if self.description_embeddings:
-            print(f"Tacotron2: Description embeddings enabled")
-            self.description_embedding_linear = nn.Linear(
-                description_embeddings_dim, 512
-            )
 
-        else:
-            print("Tacotron2: Description embeddings disabled")
+        # else:
+        #     print("Tacotron2: Description embeddings disabled")
 
         # Tacotron 2 encoder
         self.encoder = Encoder(
             num_chars=num_chars,
-            embedding_dim=char_embedding_dim,
+            embedding_dim=encoded_dim,
             encoder_kernel_size=encoder_kernel_size,
             dropout=dropout,
         )
+
+        encoder_out_dim = encoded_dim
 
         # Prenet - a preprocessing step over the Mel spectrogram from the previous frame.
         # The network uses AlwaysDropout, which forces dropout to occur even during inference. This
@@ -95,12 +93,23 @@ class Tacotron2(nn.Module):
 
         # Additional encoder layer for attention. Done here since it applies to the entire
         # character input, and is only applied once before invoking the decoder
-        self.att_encoder = nn.Linear(self.embedding_dim, att_dim, bias=False)
+        encoded_full_dim = self.embedding_dim
+        # if speaker_tokens:
+        #     encoded_full_dim += encoded_dim
+        if description_embeddings:
+            self.description_embeddings_linear = nn.Sequential(
+                nn.Linear(description_embeddings_dim, 128), nn.Tanh()
+            )
+            encoded_full_dim += 128
+
+        self.encoded_full_dim = encoded_full_dim
+
+        self.att_encoder = nn.Linear(encoded_full_dim, att_dim, bias=False)
 
         # Tacotron 2 decoder
         self.decoder = Decoder(
             num_mels=num_mels,
-            embedding_dim=self.embedding_dim,
+            embedding_dim=encoded_full_dim,
             prenet_dim=prenet_dim,
             att_rnn_dim=att_rnn_dim,
             att_dim=att_dim,
@@ -126,7 +135,7 @@ class Tacotron2(nn.Module):
             torch.zeros((batch_size, self.att_rnn_dim), device=device),
         )
 
-        att_context = torch.zeros(batch_size, self.embedding_dim, device=device)
+        att_context = torch.zeros(batch_size, self.encoded_full_dim, device=device)
         att_weights = torch.zeros(batch_size, encoded_len, device=device)
         att_weights_cum = torch.zeros(batch_size, encoded_len, device=device)
 
@@ -187,15 +196,28 @@ class Tacotron2(nn.Module):
         # Encoding --------------------------------------------------------------------------------
         encoded = self.encoder(chars_idx, chars_idx_len)
 
-        tokens = Tensor = torch.zeros_like(encoded, device=device)
-        if self.speaker_tokens:
-            tokens += self.speaker_embedding(speaker_id).unsqueeze(1)
-        if self.description_embeddings and description_embeddings is not None:
-            tokens += self.description_embedding_linear(
-                description_embeddings
-            ).unsqueeze(1)
+        encoded_cat = []
 
-        encoded += F.tanh(tokens)
+        if self.speaker_tokens:
+            encoded = F.tanh(encoded + self.speaker_embedding(speaker_id).unsqueeze(1))
+        if self.description_embeddings and description_embeddings is not None:
+            encoded_cat.append(
+                self.description_embeddings_linear(description_embeddings)
+                .unsqueeze(1)
+                .expand(-1, longest_chars, -1)
+            )
+
+        encoded_cat = [encoded] + encoded_cat
+
+        encoded = torch.concat(encoded_cat, dim=2)
+
+        # tokens = Tensor = torch.zeros_like(encoded, device=device)
+        # if self.speaker_tokens:
+        #     tokens += self.speaker_embedding(speaker_id).unsqueeze(1)
+        # if self.description_embeddings and description_embeddings is not None:
+        #     tokens += description_embeddings
+
+        # encoded += F.tanh(tokens)
 
         # Create a mask for the encoded characters
         encoded_mask = (

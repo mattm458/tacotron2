@@ -96,8 +96,8 @@ def do_say(
                 (1, model_config["args"]["description_embeddings_dim"])
             )
         else:
-            tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-large-uncased")
-            model = BertModel.from_pretrained("bert-large-uncased").cuda()
+            tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-uncased")
+            model = BertModel.from_pretrained("google-bert/bert-base-uncased").cuda()
             tokenized = tokenizer(description, return_tensors="pt")
             description_embeddings = model(
                 input_ids=tokenized["input_ids"].cuda(),

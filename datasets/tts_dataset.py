@@ -1,4 +1,5 @@
 import os
+import random
 import re
 from os import path
 from typing import Any, Dict, List, Optional, Tuple
@@ -70,7 +71,8 @@ class TTSDataset(Dataset):
         cache=False,
         cache_dir=None,
         description_embeddings: Optional[list[str]] = None,
-        description_embeddings_dim: int = 1024,
+        description_embeddings_dim: int = 768,
+        description_embeddings_augment: bool = False,
         sample_rate: int = 22050,
     ):
         super().__init__()
@@ -146,6 +148,9 @@ class TTSDataset(Dataset):
         self.texts = texts
         self.description_embeddings = description_embeddings
         self.description_embeddings_dim = description_embeddings_dim
+        self.description_embeddings_augment = description_embeddings_augment
+        if description_embeddings_augment:
+            print("Using augmented description embeddings")
 
         self.speaker_ids = speaker_ids
 
@@ -247,10 +252,36 @@ class TTSDataset(Dataset):
 
         if self.description_embeddings is not None:
             if self.description_embeddings[i] is not None:
+                if self.description_embeddings_augment:
+                    original_description_embeddings_filename = path.join(
+                        self.base_dir, self.description_embeddings[i]
+                    )
+
+                    augmented_dir = original_description_embeddings_filename.replace(
+                        ".pt", "_augmentations"
+                    )
+
+                    eligible_description_embeddings = [
+                        original_description_embeddings_filename
+                    ] + [
+                        path.join(augmented_dir, x)
+                        for x in os.listdir(augmented_dir)
+                        if ".pt" in x
+                    ]
+
+                    description_embeddings_filename = random.choice(
+                        eligible_description_embeddings
+                    )
+
+                else:
+                    description_embeddings_filename = path.join(
+                        self.base_dir, self.description_embeddings[i]
+                    )
+
                 out_metadata["description_embeddings"] = torch.load(
                     path.join(
                         self.base_dir,
-                        self.description_embeddings[i],
+                        description_embeddings_filename,
                     ),
                     map_location="cpu",
                 ).unsqueeze(0)

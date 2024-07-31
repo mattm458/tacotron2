@@ -65,15 +65,32 @@ def main(ctx: Context, config: str, device: int):
     type=str,
     help="A prosody model checkpoint. If specified, the model will be used as an objective in the second half of training.",
 )
+@click.option(
+    "--finetune",
+    is_flag=True,
+    default=False,
+    help="Fine-tune a model if the configuration allows. If specified, --resume-ckpt is required.",
+)
+@click.option(
+    "--finetune-steps",
+    required=False,
+    type=int,
+    help="The number of training steps to fine-tune the model. Required if --finetune is given.",
+)
 def train(
     ctx: Context,
     speech_dir: str,
     results_dir: Optional[str] = None,
     resume_ckpt: Optional[str] = None,
     prosody_model_checkpoint: Optional[str] = None,
+    finetune: bool = False,
+    finetune_steps: Optional[int] = None,
 ):
     if ctx.obj["config"] is None:
         raise Exception("Configuration required for training!")
+
+    if finetune and finetune_steps is None:
+        raise Exception("If finetuning, --finetune-steps is required!")
 
     do_train(
         dataset_config=ctx.obj["config"]["dataset"],
@@ -84,7 +101,9 @@ def train(
         speech_dir=speech_dir,
         results_dir=results_dir,
         resume_ckpt=resume_ckpt,
-        #prosody_model_checkpoint=prosody_model_checkpoint,
+        finetune=finetune,
+        finetune_steps=finetune_steps,
+        # prosody_model_checkpoint=prosody_model_checkpoint,
     )
 
 

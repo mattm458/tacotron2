@@ -21,7 +21,7 @@ class TTSModel(pl.LightningModule):
         lr: float,
         weight_decay: float,
         num_chars: int,
-        char_embedding_dim: int,
+        encoded_dim: int,
         encoder_kernel_size: int,
         num_mels: int,
         prenet_dim: int,
@@ -58,7 +58,7 @@ class TTSModel(pl.LightningModule):
 
         self.tacotron2 = Tacotron2(
             num_chars=num_chars,
-            char_embedding_dim=char_embedding_dim,
+            encoded_dim=encoded_dim,
             encoder_kernel_size=encoder_kernel_size,
             num_mels=num_mels,
             prenet_dim=prenet_dim,

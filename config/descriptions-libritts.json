@@ -27,7 +27,7 @@
     "description_embeddings": true,
     "args": {
       "max_steps": 100000,
-      "val_check_interval": 0.1
+      "val_check_interval": 0.25
     }
   },
   "model": {
@@ -39,22 +39,31 @@
       "rnn_hidden_dim": 1024,
       "postnet_dim": 512,
       "dropout": 0.5,
-      "char_embedding_dim": 512,
+      "encoded_dim": 512,
       "encoder_kernel_size": 5,
       "description_embeddings": true,
-      "description_embeddings_dim": 1024
+      "description_embeddings_dim": 768
     }
   },
   "extensions": {
     "speaker_tokens": {
       "active": true,
-      "num_speakers": 562
+      "num_speakers": 562,
+      "dim": 512
     },
     "controls": {
       "active": false
     },
     "descriptions": {
-      "bert_embeddings": true
+      "bert_embeddings": true,
+      "finetuneable": true,
+      "finetune_args": {
+        "training": {
+          "args": {
+            "val_check_interval": 1.0
+          }
+        }
+      }
     }
   }
 }

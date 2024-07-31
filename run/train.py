@@ -25,8 +25,10 @@ def do_train(
     extensions_config: dict,
     device: int,
     speech_dir: str,
-    results_dir: Optional[str] = None,
-    resume_ckpt: Optional[str] = None,
+    results_dir: str | None,
+    resume_ckpt: str | None,
+    finetune: bool,
+    finetune_steps: int | None,
     # prosody_model_checkpoint: Optional[str] = None,
 ):
     if results_dir is None:
@@ -64,16 +66,56 @@ def do_train(
         )
         val_df = val_df[val_df.speaker_id == force_speaker_id].reset_index(drop=True)
 
+    description_augment = False
+    if extensions_config["descriptions"]["finetuneable"] and finetune:
+        print("Using only training instances with description embeddings")
+        augmented_ids = set(
+            pd.read_csv(path.join(speech_dir, "augmented_ids.csv"), header=None)[0]
+        )
+
+        train_df = train_df[train_df.id.isin(augmented_ids)]
+        description_augment = True
+
     train_features = (
         train_df[extensions_config["controls"]["features"]].values.tolist()
         if extensions_config["controls"]["active"]
         else None
     )
 
+    description_embeddings_train = None
+    description_embeddings_val = None
+    if extensions_config["descriptions"]["bert_embeddings"]:
+        if (
+            extensions_config["descriptions"]["finetuneable"] and finetune
+        ) or not extensions_config["descriptions"]["finetuneable"]:
+            print("Using description embeddings")
+            description_embeddings_train = list(
+                train_df.description_embedding.replace({np.nan: None})
+            )
+            description_embeddings_val = list(
+                val_df.description_embedding.replace({np.nan: None})
+            )
+        elif extensions_config["descriptions"]["finetuneable"] and not finetune:
+            print("Using blank description embeddings")
+            description_embeddings_train = [
+                None for x in train_df.description_embedding
+            ]
+            description_embeddings_val = [None for x in val_df.description_embedding]
+        else:
+            raise Exception("Wut")
+    else:
+        print("Not using description embeddings")
+
+    if finetune:
+        training_config["args"]["max_steps"] += finetune_steps
+        training_config["lr"] /= 10
+        training_config["args"]["val_check_interval"] = 1.0
+        training_config["batch_size"] *= 2
+
     train_dataset = TTSDataset(
-        filenames=train_df.wav,
-        texts=train_df.text,
-        speaker_ids=(
+        filenames=list(train_df.wav),
+        texts=list(train_df.text),
+        speaker_ids=list(
             train_df.speaker_id
             if extensions_config["speaker_tokens"]["active"]
             else None
@@ -81,11 +123,8 @@ def do_train(
         features=train_features,
         base_dir=speech_dir,
         cache_dir=cache_dir,
-        description_embeddings=(
-            list(train_df.description_embedding.replace({np.nan: None}))
-            if extensions_config["descriptions"]["bert_embeddings"]
-            else None
-        ),
+        description_embeddings=description_embeddings_train,
+        description_embeddings_augment=description_augment,
         **dataset_config["preprocessing"],
     )
 
@@ -96,19 +135,15 @@ def do_train(
     )
 
     val_dataset = TTSDataset(
-        filenames=val_df.wav,
-        texts=val_df.text,
-        speaker_ids=(
+        filenames=list(val_df.wav),
+        texts=list(val_df.text),
+        speaker_ids=list(
             val_df.speaker_id if extensions_config["speaker_tokens"]["active"] else None
         ),
         features=val_features,
         base_dir=speech_dir,
         cache_dir=cache_dir,
-        description_embeddings=(
-            list(train_df.description_embedding.replace({np.nan: None}))
-            if extensions_config["descriptions"]["bert_embeddings"]
-            else None
-        ),
+        description_embeddings=description_embeddings_val,
         **dataset_config["preprocessing"],
     )
 
@@ -124,7 +159,7 @@ def do_train(
 
     val_dataloader = TTSDataLoader(
         dataset=val_dataset,
-        batch_size=training_config["batch_size"],
+        batch_size=64,
         num_workers=8,
         pin_memory=True,
         shuffle=False,
@@ -191,6 +226,12 @@ def do_train(
         **model_config["args"],
     )
 
+    if finetune:
+        for param in model.tacotron2.encoder.parameters():
+            param.requires_grad = False
+        for param in model.tacotron2.speaker_embedding.parameters():
+            param.requires_grad = False
+
     trainer = Trainer(
         logger=logger,
         devices=[device],
@@ -207,3 +248,8 @@ def do_train(
         val_dataloaders=val_dataloader,
         ckpt_path=resume_ckpt,
     )
+
+    if finetune:
+        trainer.save_checkpoint(path.join(results_dir, "finetuned.ckpt"))
+    else:
+        trainer.save_checkpoint(path.join(results_dir, "final.ckpt"))
