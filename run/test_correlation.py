@@ -138,9 +138,11 @@ def do_test_correlation(
             filenames=test_df.wav,
             texts=test_df.text,
             base_dir=speech_dir,
-            speaker_ids=test_df.speaker_id
-            if extensions_config["speaker_tokens"]["active"]
-            else None,
+            speaker_ids=(
+                test_df.speaker_id
+                if extensions_config["speaker_tokens"]["active"]
+                else None
+            ),
             features=test_features,
             **dataset_config["preprocessing"],
             include_text=True,
