@@ -39,6 +39,23 @@ The model supports several commands. Most cases involve the following two comman
 
 All commands require some parameters to be given. Please see `python main.py --help` for more details about these parameters.
 
+### Train
+
+The `train` command allows you to train a Tacotron 2 TTS model. The command supports several parameters. Those relevant to textual description research are given below:
+
+| Parameter       | Description                                                             |
+| --------------- | ----------------------------------------------------------------------- |
+| `--speech-dir`  | The path to a TTS dataset.                                              |
+| `--results-dir` | The name of a directory where logging and checkpoint saving will occur. |
+| `--resume-ckpt` | A checkpoint to resume training from.                                   |
+
+Part of our research involves fine-tuning a model with more specific training data than what is used in the main training step. The following parameters are involved with fine-tuning:
+
+| Parameter          | Description                                                                     |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `--finetune`       | Train the model with fine-tuning active. If given, `--resume-ckpt` is required. |
+| `--finetune-steps` | The number of additional steps to fine-tune.                                    |
+
 ### Say
 
 The `say` command allows you to generate a WAV file from pretrained model weights. The command supports several parameters. Those relevant to textual description research are given below:
